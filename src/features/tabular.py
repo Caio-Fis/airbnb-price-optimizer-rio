@@ -17,6 +17,8 @@ from loguru import logger
 from sklearn.preprocessing import MultiLabelBinarizer
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
+from src.features.constants import TOP_AMENITIES
+
 RAW_DATA_PATH = Path(os.getenv("RAW_DATA_PATH", "data/raw"))
 PROCESSED_DATA_PATH = Path(os.getenv("PROCESSED_DATA_PATH", "data/processed"))
 CITY = os.getenv("INSIDE_AIRBNB_CITY", "rio-de-janeiro")
@@ -30,13 +32,6 @@ NUMERIC_COLS = [
     "number_of_reviews", "review_scores_rating",
     "review_scores_cleanliness", "review_scores_location",
     "calculated_host_listings_count", "availability_365",
-]
-
-# Amenities mais impactantes no preço (baseado em literatura)
-TOP_AMENITIES = [
-    "wifi", "kitchen", "air conditioning", "heating", "washer",
-    "dryer", "pool", "gym", "elevator", "hot tub", "fireplace",
-    "parking", "breakfast", "workspace", "tv", "dishwasher",
 ]
 
 

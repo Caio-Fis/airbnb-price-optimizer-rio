@@ -10,6 +10,7 @@ lightgbm==4.3.0
 
 # Time series
 statsmodels==0.14.2
+scipy==1.11.4
 
 # Image analysis
 torch==2.3.0

@@ -9,7 +9,7 @@ import numpy as np
 from loguru import logger
 
 from src.serving.schemas import PredictionRequest, PredictionResponse
-from src.features.tabular import TOP_AMENITIES
+from src.features.constants import TOP_AMENITIES
 
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "models/model.joblib"))
 ENCODERS_PATH = Path(os.getenv("ENCODERS_PATH", "models/encoders.joblib"))
