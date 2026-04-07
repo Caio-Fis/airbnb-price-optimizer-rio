@@ -1,0 +1,79 @@
+stages:
+  download:
+    cmd: python -m src.ingestion.download_data
+    deps:
+      - src/ingestion/download_data.py
+    outs:
+      - data/raw
+
+  tabular_features:
+    cmd: python -c "from src.features.tabular import TabularFeaturePipeline; TabularFeaturePipeline().run(fit=True)"
+    deps:
+      - src/features/tabular.py
+      - data/raw
+    outs:
+      - data/processed/tabular_features.parquet
+      - data/processed/encoders.joblib
+
+  seasonality_features:
+    cmd: python -c "from src.features.tabular import SeasonalityPipeline; SeasonalityPipeline().run()"
+    deps:
+      - src/features/tabular.py
+      - data/raw
+    outs:
+      - data/processed/seasonality_features.parquet
+
+  clip_features:
+    cmd: python -c "from src.features.image_clip import CLIPFeatureExtractor; CLIPFeatureExtractor().run()"
+    deps:
+      - src/features/image_clip.py
+      - data/images
+    outs:
+      - data/processed/clip_features.parquet
+
+  yolo_features:
+    cmd: python -c "from src.features.image_yolo import YOLOFeatureExtractor; YOLOFeatureExtractor().run()"
+    deps:
+      - src/features/image_yolo.py
+      - data/images
+    outs:
+      - data/processed/yolo_features.parquet
+
+  merge_features:
+    cmd: >
+      python -c "
+      from src.features.pipeline import merge_all_features;
+      merge_all_features(
+        'data/processed/tabular_features.parquet',
+        'data/processed/seasonality_features.parquet',
+        'data/processed/clip_features.parquet',
+        'data/processed/yolo_features.parquet'
+      )"
+    deps:
+      - src/features/pipeline.py
+      - data/processed/tabular_features.parquet
+      - data/processed/seasonality_features.parquet
+      - data/processed/clip_features.parquet
+      - data/processed/yolo_features.parquet
+    outs:
+      - data/processed/final_features.parquet
+
+  train:
+    cmd: >
+      python -c "
+      from src.training.train import train_model;
+      from src.training.evaluate import select_best_model, register_champion;
+      xgb_id = train_model('xgboost');
+      lgb_id = train_model('lightgbm');
+      best = select_best_model([xgb_id, lgb_id]);
+      register_champion(best)"
+    deps:
+      - src/training/train.py
+      - src/training/evaluate.py
+      - data/processed/final_features.parquet
+    outs:
+      - models/model.joblib
+      - models/encoders.joblib
+
+metrics:
+  - data/processed/metrics.json

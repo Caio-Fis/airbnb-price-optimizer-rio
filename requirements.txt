@@ -1,0 +1,46 @@
+# Core
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.4.2
+category-encoders==2.6.3
+
+# Models
+xgboost==2.0.3
+lightgbm==4.3.0
+
+# Time series
+statsmodels==0.14.2
+
+# Image analysis
+torch==2.3.0
+torchvision==0.18.0
+transformers==4.40.2  # CLIP via HuggingFace
+ultralytics==8.2.0    # YOLOv8
+Pillow==10.3.0
+open-clip-torch==2.24.0
+
+# Feature engineering
+shap==0.45.0
+
+# Serving
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.1
+
+# MLflow
+mlflow==2.13.0
+google-cloud-storage==2.16.0
+
+# Airflow (installed separately via docker)
+# apache-airflow==2.9.1
+
+# Monitoring
+evidently==0.4.30
+
+# Utils
+python-dotenv==1.0.1
+loguru==0.7.2
+joblib==1.4.2
+httpx==0.27.0
+pytest==8.2.0
+pytest-asyncio==0.23.6

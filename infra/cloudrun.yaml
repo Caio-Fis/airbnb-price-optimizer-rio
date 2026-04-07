@@ -1,0 +1,39 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: airbnb-price-api
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "5"
+        run.googleapis.com/cpu-throttling: "false"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 30
+      containers:
+        - image: us-central1-docker.pkg.dev/PROJECT_ID/airbnb-optimizer/api:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          env:
+            - name: GCP_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: airbnb-api-secrets
+                  key: GCP_PROJECT_ID
+            - name: GCP_BUCKET_NAME
+              value: airbnb-price-optimizer
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow-service:5000
+          livenessProbe:
+            httpGet:
+              path: /health
+            initialDelaySeconds: 10
+            periodSeconds: 30
