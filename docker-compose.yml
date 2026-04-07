@@ -14,7 +14,7 @@ x-airflow-common: &airflow-common
     GCP_PROJECT_ID: ${GCP_PROJECT_ID}
     GCP_BUCKET_NAME: ${GCP_BUCKET_NAME}
     GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/credentials/service-account.json
-    PYTHONPATH: /opt/airflow/src
+    PYTHONPATH: /opt/airflow
   volumes:
     - ./dags:/opt/airflow/dags
     - ./src:/opt/airflow/src
