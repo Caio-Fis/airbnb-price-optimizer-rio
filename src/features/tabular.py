@@ -19,7 +19,7 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 RAW_DATA_PATH = Path(os.getenv("RAW_DATA_PATH", "data/raw"))
 PROCESSED_DATA_PATH = Path(os.getenv("PROCESSED_DATA_PATH", "data/processed"))
-CITY = os.getenv("INSIDE_AIRBNB_CITY", "sao-paulo")
+CITY = os.getenv("INSIDE_AIRBNB_CITY", "rio-de-janeiro")
 
 LOW_CARD_COLS = ["room_type", "cancellation_policy", "host_is_superhost"]
 HIGH_CARD_COLS = ["neighbourhood_cleansed"]  # target encoding

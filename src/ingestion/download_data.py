@@ -13,13 +13,12 @@ from loguru import logger
 RAW_DATA_PATH = Path(os.getenv("RAW_DATA_PATH", "data/raw"))
 IMAGES_PATH = Path(os.getenv("IMAGES_PATH", "data/images"))
 GCP_BUCKET_NAME = os.getenv("GCP_BUCKET_NAME", "airbnb-price-optimizer")
-CITY = os.getenv("INSIDE_AIRBNB_CITY", "sao-paulo")
+CITY = os.getenv("INSIDE_AIRBNB_CITY", "rio-de-janeiro")
 
 # Inside Airbnb base URL
 INSIDE_AIRBNB_BASE = "https://data.insideairbnb.com/brazil"
 
 CITY_URLS = {
-    "sao-paulo": f"{INSIDE_AIRBNB_BASE}/sp/s%C3%A3o-paulo/2024-03-21/data",
     "rio-de-janeiro": f"{INSIDE_AIRBNB_BASE}/rj/rio-de-janeiro/2024-03-23/data",
 }
 
