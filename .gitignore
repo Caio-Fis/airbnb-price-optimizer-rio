@@ -1,0 +1,56 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Data (large files — use DVC or GCS)
+data/raw/
+data/processed/
+data/images/
+
+# Models
+models/
+*.joblib
+*.pkl
+*.pt
+*.onnx
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Airflow
+logs/
+airflow.db
+airflow.cfg
+
+# GCP credentials
+*.json
+!requirements.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+postgres-db-volume/
