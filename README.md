@@ -4,7 +4,7 @@ Pipeline de ML de ponta a ponta para **otimização de preço** de listings do A
 
 **API pública:** `https://airbnb-price-api-966533570956.us-central1.run.app`
 
-**Monitoramento:** [Relatório de Data Drift Evidently — Jun vs Set 2025](https://storage.googleapis.com/airbnb-rj-projectb0f/evidently/monitoring_drift_report.html)
+**Monitoramento:** <a href="https://storage.googleapis.com/airbnb-rj-projectb0f/evidently/monitoring_drift_report.html" target="_blank">Relatório de Data Drift Evidently — Jun vs Set 2025</a>
 
 ---
 
