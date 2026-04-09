@@ -14,7 +14,7 @@ spec:
       containerConcurrency: 80
       timeoutSeconds: 60
       containers:
-        - image: us-central1-docker.pkg.dev/project-b0fa2d28-630e-4922-b41/airbnb-optimizer/api:latest
+        - image: us-central1-docker.pkg.dev/YOUR_PROJECT_ID/airbnb-optimizer/api:latest
           ports:
             - containerPort: 8000
           resources:
