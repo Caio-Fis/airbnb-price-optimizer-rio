@@ -1,4 +1,4 @@
-.PHONY: help setup up down restart logs test lint format parquet
+.PHONY: help setup up down restart logs test lint format parquet demo install-playwright
 
 help:
 	@echo "Available commands:"
@@ -13,6 +13,8 @@ help:
 	@echo "  make parquet    - Convert raw CSV.gz to Parquet (run once)"
 	@echo "  make train      - Trigger training DAG manually"
 	@echo "  make predict    - Test API prediction endpoint"
+	@echo "  make demo       - Run Streamlit demo app"
+	@echo "  make install-playwright - Install Playwright Chromium (scraper)"
 
 setup:
 	cp .env.example .env
@@ -47,6 +49,12 @@ parquet:
 
 train:
 	docker compose exec airflow-scheduler airflow dags trigger training_dag
+
+demo:
+	streamlit run demo/app.py
+
+install-playwright:
+	playwright install chromium
 
 predict:
 	curl -X POST http://localhost:8000/predict \

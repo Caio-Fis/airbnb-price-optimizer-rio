@@ -23,6 +23,7 @@ from loguru import logger
 
 from src.serving.schemas import PredictionRequest, PredictionResponse
 from src.features.constants import TOP_AMENITIES
+from src.features.demand import _optimal_price
 from src.features.geo import FIXED_POIS, _haversine, _dist_to_nearest
 
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "models/model.joblib"))
@@ -33,9 +34,24 @@ COMPETITION_STATS_PATH = PROCESSED_DATA_PATH / "competition_stats.joblib"
 SEASONAL_DOW_PATH = PROCESSED_DATA_PATH / "hw_seasonal_by_dow.joblib"
 METRO_CACHE_PATH = PROCESSED_DATA_PATH / "geo_metro_cache.json"
 DEMAND_PARAMS_PATH = PROCESSED_DATA_PATH / "demand_params.joblib"
+TRAINING_STATS_PATH = PROCESSED_DATA_PATH / "training_stats.joblib"
+PREDICTION_INTERVALS_PATH = PROCESSED_DATA_PATH / "prediction_intervals.joblib"
 
 ROOM_TYPES = ["Entire home/apt", "Private room", "Shared room", "Hotel room"]
-SNAPSHOT_DATE = date(2025, 9, 26)
+
+
+def _rank_from_percentiles(price: float, p25: float, p50: float, p75: float) -> float:
+    """Estima o percentile rank de um preço dado P25/P50/P75 do segmento."""
+    if p25 <= 0 or p50 <= 0 or p75 <= p25:
+        return 0.5
+    if price <= p25:
+        return max(0.0, 0.25 * price / p25)
+    elif price <= p50:
+        return 0.25 + 0.25 * (price - p25) / (p50 - p25)
+    elif price <= p75:
+        return 0.50 + 0.25 * (price - p50) / (p75 - p50)
+    else:
+        return min(0.75 + 0.25 * (price - p75) / max(p75 * 0.5, 1.0), 1.0)
 
 
 class Predictor:
@@ -48,6 +64,9 @@ class Predictor:
         self.seasonal_by_dow: dict = {}
         self.metro_stations: list = []
         self.model_version = "unknown"
+        self.training_stats: dict = {}
+        self.prediction_intervals: dict = {}
+        self.price_p99: Optional[float] = None
         self._load()
 
     def _load(self):
@@ -59,6 +78,7 @@ class Predictor:
 
         if ENCODERS_PATH.exists():
             self.encoders = joblib.load(ENCODERS_PATH)
+            self.price_p99 = self.encoders.get("price_p99")
             logger.info("Encoders loaded")
         else:
             logger.warning(f"Encoders not found at {ENCODERS_PATH}")
@@ -82,6 +102,18 @@ class Predictor:
             with open(METRO_CACHE_PATH) as f:
                 self.metro_stations = [tuple(p) for p in json.load(f)]
             logger.info(f"Metro cache loaded — {len(self.metro_stations)} stations")
+
+        if TRAINING_STATS_PATH.exists():
+            self.training_stats = joblib.load(TRAINING_STATS_PATH)
+            logger.info(f"Training stats loaded: {self.training_stats}")
+
+        if PREDICTION_INTERVALS_PATH.exists():
+            self.prediction_intervals = joblib.load(PREDICTION_INTERVALS_PATH)
+            logger.info(
+                f"Prediction intervals loaded: "
+                f"P10={self.prediction_intervals.get('p10_pct', -0.15):.2%} "
+                f"P90={self.prediction_intervals.get('p90_pct', 0.15):.2%}"
+            )
 
     def is_ready(self) -> bool:
         return self.model is not None and self.encoders is not None
@@ -118,18 +150,21 @@ class Predictor:
             "is_weekend": int(dow >= 5),
         }
 
-    def _competition_features(self, neighbourhood: str, room_type: str) -> dict:
+    def _competition_features(self, neighbourhood: str, room_type: str,
+                              comp_price_rank_override: Optional[float] = None) -> dict:
         """Lookup de estatísticas locais por bairro+tipo."""
         stats = self.competition_stats.get((neighbourhood, room_type), {})
+        rank = comp_price_rank_override if comp_price_rank_override is not None else 0.5
         return {
             "comp_count": float(stats.get("count", 0)),
             "comp_price_p25": float(stats.get("p25", 0.0)),
             "comp_price_p50": float(stats.get("p50", 0.0)),
             "comp_price_p75": float(stats.get("p75", 0.0)),
-            "comp_price_rank": 0.5,  # posição central no mercado por default
+            "comp_price_rank": rank,
         }
 
-    def _build_features(self, req: PredictionRequest) -> np.ndarray:
+    def _build_features(self, req: PredictionRequest,
+                        comp_price_rank_override: Optional[float] = None) -> np.ndarray:
         row = {
             "accommodates": req.accommodates,
             "bathrooms": req.bathrooms,
@@ -172,13 +207,15 @@ class Predictor:
         # Sazonalidade
         row.update(self._seasonality_features(req.target_date))
 
-        # Competição local
-        row.update(self._competition_features(req.neighbourhood, req.room_type))
+        # Competição local (rank via override do two-pass ou 0.5 no primeiro pass)
+        row.update(self._competition_features(req.neighbourhood, req.room_type,
+                                              comp_price_rank_override))
 
-        # Reviews — defaults para listing novo (sem histórico)
+        # Reviews — mediana do treino como default (não cresce infinitamente)
+        days_default = self.training_stats.get("days_since_last_review_median", 30.0)
         row.update({
             "review_velocity": 0.0,
-            "days_since_last_review": float((date.today() - SNAPSHOT_DATE).days),
+            "days_since_last_review": days_default,
             "total_reviews": float(req.number_of_reviews),
             "n_neg_keywords": 0.0,
             "neg_keyword_ratio": 0.0,
@@ -207,7 +244,6 @@ class Predictor:
 
     def _revenue_optimal(self, neighbourhood: str, room_type: str) -> tuple[Optional[float], Optional[float], str]:
         """Retorna (revenue_optimal_price, expected_occupancy, strategy) do segmento."""
-        from scipy.special import expit
         params = self.demand_params.get((neighbourhood, room_type))
         if not params or params.get("b") is None:
             return None, None, "fallback"
@@ -216,26 +252,36 @@ class Predictor:
         b = params["b"]
         comp_p50 = params["comp_p50"]
         comp_p75 = params.get("comp_p75", comp_p50 * 1.25)
-        strategy = params.get("strategy", "fallback")
 
-        if b < -1:
-            grid = np.linspace(0.3, 3.5, 500)
-            revenues = grid * comp_p50 * expit(a + b * np.log(np.maximum(grid, 1e-6)))
-            best = int(np.argmax(revenues))
-            opt_price = float(grid[best] * comp_p50)
-            opt_occ = float(expit(a + b * np.log(grid[best])))
-        else:
-            opt_price = float(comp_p75) if comp_p75 > comp_p50 else comp_p50 * 1.25
-            opt_occ = float(expit(a + b * np.log(opt_price / comp_p50))) if comp_p50 > 0 else 0.4
-
+        opt_price, opt_occ, strategy = _optimal_price(a, b, comp_p50, comp_p75)
         return round(opt_price, 2), round(opt_occ * 100, 1), strategy
 
     def predict(self, req: PredictionRequest) -> PredictionResponse:
-        from scipy.special import expit as _expit
+        # Pass 1: comp_price_rank = 0.5 (placeholder)
+        X1 = self._build_features(req)
+        log_pred1 = float(self.model.predict(X1)[0])
+        market_price_1 = float(np.expm1(log_pred1))
 
-        X = self._build_features(req)
-        log_pred = float(self.model.predict(X)[0])
-        market_price = float(np.expm1(log_pred))
+        # Pass 2: recalcular comp_price_rank com base no preço previsto
+        comp = self.competition_stats.get((req.neighbourhood, req.room_type), {})
+        p25 = comp.get("p25", 0.0)
+        p50 = comp.get("p50", 0.0)
+        p75 = comp.get("p75", 0.0)
+
+        if p25 > 0 and p50 > 0 and p75 > p25:
+            actual_rank = _rank_from_percentiles(market_price_1, p25, p50, p75)
+            X2 = self._build_features(req, comp_price_rank_override=actual_rank)
+            log_pred2 = float(self.model.predict(X2)[0])
+            market_price = float(np.expm1(log_pred2))
+        else:
+            market_price = market_price_1
+
+        # Aviso se o preço previsto excede o P99 do treino (input suspeito)
+        if self.price_p99 and market_price > self.price_p99 * 1.5:
+            logger.warning(
+                f"market_price R${market_price:.0f} excede P99 do treino "
+                f"R${self.price_p99:.0f} × 1.5 — possível input outlier"
+            )
 
         # Confiança baseada no número de reviews
         if req.number_of_reviews >= 20:
@@ -245,16 +291,16 @@ class Predictor:
         else:
             confidence = "low"
 
-        # Competição local
-        comp = self.competition_stats.get((req.neighbourhood, req.room_type), {})
         local_median = comp.get("p50")
 
         # Preço ótimo de receita via curva de demanda
         revenue_price, exp_occ, strategy = self._revenue_optimal(req.neighbourhood, req.room_type)
 
-        # Intervalo de confiança: ±15% em torno do market_price
-        low = market_price * 0.85
-        high = market_price * 1.15
+        # Intervalo de confiança via residuais OOF (P10/P90); fallback ±15%
+        p10_pct = self.prediction_intervals.get("p10_pct", -0.15)
+        p90_pct = self.prediction_intervals.get("p90_pct", 0.15)
+        low = max(market_price * (1 + p10_pct), 1.0)
+        high = market_price * (1 + p90_pct)
 
         # Nota de sazonalidade
         seasonal_note = None

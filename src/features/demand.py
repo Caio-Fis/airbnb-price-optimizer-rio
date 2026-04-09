@@ -1,10 +1,11 @@
 """
 Módulo de otimização de receita via curva de demanda.
 
-Abordagem: elasticidade de preço estimada por painel Jun→Set 2025.
-  - Para cada listing com dados nos dois snapshots: Δlogit(occ) ~ b * Δlog(price)
+Abordagem: elasticidade de preço estimada por painel de snapshots.
+  - Para cada listing com dados em dois snapshots: Δlogit(occ) ~ b * Δlog(price)
   - Controla efeitos fixos por listing (qualidade, localização) e sazonalidade
   - Segmentos sem variação suficiente usam fallback cross-sectional
+  - Com múltiplos pares de snapshots: weighted average de b (pares recentes > peso)
 
 Preço ótimo: argmax[ price × sigmoid(a + b × log(price / comp_p50)) ]
 
@@ -84,105 +85,187 @@ def _optimal_price(
 
 
 class DemandPipeline:
+    """
+    Pipeline de estimação de curva de demanda.
+
+    snapshot_pairs: lista de dicts com chaves:
+        - listings_earlier: path do parquet de listings do snapshot mais antigo
+        - calendar_earlier: path do parquet de calendário do snapshot mais antigo
+        - date_earlier: data do scrape mais antigo (str YYYY-MM-DD)
+        - listings_later: path do parquet de listings do snapshot mais recente
+        - calendar_later: path do parquet de calendário do snapshot mais recente
+        - date_later: data do scrape mais recente (str YYYY-MM-DD)
+
+    Default (backward-compatible): usa apenas Jun/Set 2025.
+    Com múltiplos pares: weighted average de elasticidade (pares recentes > peso).
+    """
+
+    def __init__(self, snapshot_pairs: list[dict] | None = None):
+        if snapshot_pairs is None:
+            self.snapshot_pairs = [
+                {
+                    "listings_earlier": str(PROCESSED_DATA_PATH / "listings_jun2025.parquet"),
+                    "calendar_earlier": str(PROCESSED_DATA_PATH / "calendar_jun2025.parquet"),
+                    "date_earlier": "2025-06-24",
+                    "listings_later": str(PROCESSED_DATA_PATH / "listings_set2025.parquet"),
+                    "calendar_later": str(PROCESSED_DATA_PATH / "calendar_set2025.parquet"),
+                    "date_later": "2025-09-26",
+                }
+            ]
+        else:
+            self.snapshot_pairs = snapshot_pairs
+
+    @staticmethod
+    def _load_prices(path: str) -> pd.DataFrame:
+        df = pd.read_parquet(path, columns=["id", "price", "neighbourhood_cleansed", "room_type"])
+        df["price"] = pd.to_numeric(
+            df["price"].astype(str).str.replace(r"[$,]", "", regex=True),
+            errors="coerce",
+        )
+        return df.dropna(subset=["price"]).rename(columns={"id": "listing_id"})
+
+    def _panel_b_estimates(self, pair: dict) -> pd.DataFrame:
+        """
+        Estima elasticidade b por segmento (neighbourhood, room_type) para um par de snapshots.
+        Retorna DataFrame com colunas: neighbourhood_cleansed, room_type, b, n.
+        """
+        occ_early = _occupancy(Path(pair["calendar_earlier"]), pd.Timestamp(pair["date_earlier"]))
+        occ_late = _occupancy(Path(pair["calendar_later"]), pd.Timestamp(pair["date_later"]))
+
+        prices_early = self._load_prices(pair["listings_earlier"])
+        prices_late = self._load_prices(pair["listings_later"])
+
+        panel = (
+            prices_early[["listing_id", "price", "neighbourhood_cleansed", "room_type"]]
+            .merge(prices_late[["listing_id", "price"]], on="listing_id", suffixes=("_early", "_late"))
+            .merge(occ_early.rename("occ_early"), on="listing_id", how="inner")
+            .merge(occ_late.rename("occ_late"), on="listing_id", how="inner")
+        )
+        panel = panel[(panel["price_early"] > 0) & (panel["price_late"] > 0)]
+        panel = panel[(panel["occ_early"] >= MIN_OCCUPANCY) | (panel["occ_late"] >= MIN_OCCUPANCY)]
+        panel["delta_log_price"] = np.log(panel["price_late"]) - np.log(panel["price_early"])
+        panel["delta_logit_occ"] = _safe_logit(panel["occ_late"]) - _safe_logit(panel["occ_early"])
+        panel_varying = panel[panel["delta_log_price"].abs() > 0.01].copy()
+
+        rows = []
+        for (neighbourhood, room_type), seg in panel_varying.groupby(
+            ["neighbourhood_cleansed", "room_type"]
+        ):
+            if len(seg) < MIN_SEGMENT_PANEL:
+                continue
+            dm_dp = seg["delta_log_price"] - seg["delta_log_price"].mean()
+            dm_do = seg["delta_logit_occ"] - seg["delta_logit_occ"].mean()
+            if dm_dp.std() <= 1e-4:
+                continue
+            try:
+                lr = LinearRegression(fit_intercept=False)
+                lr.fit(dm_dp.values.reshape(-1, 1), dm_do.values)
+                b_val = float(lr.coef_[0])
+                if b_val < 0:
+                    rows.append({
+                        "neighbourhood_cleansed": neighbourhood,
+                        "room_type": room_type,
+                        "b": b_val,
+                        "n": len(seg),
+                    })
+            except Exception:
+                pass
+
+        return pd.DataFrame(rows)
+
     def run(self) -> str:
         PROCESSED_DATA_PATH.mkdir(parents=True, exist_ok=True)
 
-        # ── 1. Ocupação por snapshot ──────────────────────────────────────────
-        occ_jun = _occupancy(PROCESSED_DATA_PATH / "calendar_jun2025.parquet", JUN_SCRAPE)
-        occ_set = _occupancy(PROCESSED_DATA_PATH / "calendar_set2025.parquet", SET_SCRAPE)
-        logger.info(f"Ocupação — jun: {len(occ_jun):,} | set: {len(occ_set):,}")
+        # ── 1. Coletar estimativas de b para todos os pares disponíveis ───────
+        all_b_estimates: list[pd.DataFrame] = []
+        for pair in self.snapshot_pairs:
+            estimates = self._panel_b_estimates(pair)
+            if not estimates.empty:
+                all_b_estimates.append(estimates)
+                logger.info(
+                    f"Par {pair['date_earlier']}→{pair['date_later']}: "
+                    f"{len(estimates)} segmentos com elasticidade estimada"
+                )
 
-        # ── 2. Preços de ambos os snapshots ──────────────────────────────────
-        def _load_prices(fname):
-            df = pd.read_parquet(
-                PROCESSED_DATA_PATH / fname,
-                columns=["id", "price", "neighbourhood_cleansed", "room_type"],
-            )
-            df["price"] = pd.to_numeric(
-                df["price"].astype(str).str.replace(r"[$,]", "", regex=True),
-                errors="coerce",
-            )
-            return df.dropna(subset=["price"]).rename(columns={"id": "listing_id"})
+        # Weighted average: pares mais recentes têm peso 2× maior que o anterior
+        # w_i = 2^i / sum(2^j) onde i=0 é o mais antigo
+        combined_b: dict[tuple, float] = {}  # (neighbourhood, room_type) → b ponderado
+        if all_b_estimates:
+            n_pairs = len(all_b_estimates)
+            weights = np.array([2.0 ** i for i in range(n_pairs)])
+            weights /= weights.sum()
 
-        prices_jun = _load_prices("listings_jun2025.parquet")
-        prices_set = _load_prices("listings_set2025.parquet")
+            for i, (est, w) in enumerate(zip(all_b_estimates, weights)):
+                for _, row in est.iterrows():
+                    key = (row["neighbourhood_cleansed"], row["room_type"])
+                    if key not in combined_b:
+                        combined_b[key] = {"b_sum": 0.0, "w_sum": 0.0}
+                    combined_b[key]["b_sum"] += w * row["b"] * row["n"]
+                    combined_b[key]["w_sum"] += w * row["n"]
 
-        # ── 3. Dataset de painel (Jun ∩ Set) ──────────────────────────────────
-        panel = (
-            prices_jun[["listing_id", "price", "neighbourhood_cleansed", "room_type"]]
-            .merge(prices_set[["listing_id", "price"]], on="listing_id", suffixes=("_jun", "_set"))
-            .merge(occ_jun.rename("occ_jun"), on="listing_id", how="inner")
-            .merge(occ_set.rename("occ_set"), on="listing_id", how="inner")
+        # Elasticidade ponderada final por segmento
+        panel_b_final: dict[tuple, float] = {
+            k: v["b_sum"] / v["w_sum"]
+            for k, v in combined_b.items()
+            if v["w_sum"] > 0
+        }
+        logger.info(f"Elasticidade ponderada calculada para {len(panel_b_final)} segmentos")
+
+        # ── 2. Dados do snapshot mais recente (para a, cross-sectional, features) ──
+        latest_pair = self.snapshot_pairs[-1]
+        occ_latest = _occupancy(
+            Path(latest_pair["calendar_later"]),
+            pd.Timestamp(latest_pair["date_later"])
         )
-        panel = panel[(panel["price_jun"] > 0) & (panel["price_set"] > 0)]
-        panel = panel[(panel["occ_jun"] >= MIN_OCCUPANCY) | (panel["occ_set"] >= MIN_OCCUPANCY)]
+        prices_latest = self._load_prices(latest_pair["listings_later"])
+        logger.info(f"Snapshot mais recente: {latest_pair['date_later']} | {len(prices_latest):,} listings")
 
-        # Variações dentro do listing
-        panel["delta_log_price"] = np.log(panel["price_set"]) - np.log(panel["price_jun"])
-        panel["delta_logit_occ"] = _safe_logit(panel["occ_set"]) - _safe_logit(panel["occ_jun"])
-
-        # Remover listings sem variação de preço (inúteis para painel)
-        panel_varying = panel[panel["delta_log_price"].abs() > 0.01].copy()
-        logger.info(f"Painel: {len(panel_varying):,} listings com variação de preço")
-
-        # ── 4. Competição local (para price_premium e preço ótimo) ───────────
+        # ── 3. Competição local (para price_premium e preço ótimo) ───────────
         comp = pd.read_parquet(
             PROCESSED_DATA_PATH / "competition_features.parquet",
             columns=["comp_price_p50", "comp_price_p75"],
         )
 
-        # Dataset cross-sectional (set snapshot — mais recente)
-        prices_set_active = prices_set.merge(
-            occ_set.rename("occ_set"), on="listing_id", how="inner"
+        # Dataset cross-sectional (snapshot mais recente)
+        prices_latest_active = prices_latest.merge(
+            occ_latest.rename("occ_latest"), on="listing_id", how="inner"
         )
-        prices_set_active = prices_set_active[prices_set_active["occ_set"] >= MIN_OCCUPANCY]
-        prices_set_active = prices_set_active.merge(
+        prices_latest_active = prices_latest_active[
+            prices_latest_active["occ_latest"] >= MIN_OCCUPANCY
+        ]
+        prices_latest_active = prices_latest_active.merge(
             comp, left_on="listing_id", right_index=True, how="left"
         )
-        prices_set_active["price_premium"] = (
-            prices_set_active["price"] / prices_set_active["comp_price_p50"].clip(lower=1)
+        prices_latest_active["price_premium"] = (
+            prices_latest_active["price"] / prices_latest_active["comp_price_p50"].clip(lower=1)
         )
 
-        # ── 5. Estimação da curva de demanda por segmento ────────────────────
+        # ── 4. Estimação da curva de demanda por segmento ────────────────────
         demand_params: dict = {}
 
-        for (neighbourhood, room_type), seg_cs in prices_set_active.groupby(
+        for (neighbourhood, room_type), seg_cs in prices_latest_active.groupby(
             ["neighbourhood_cleansed", "room_type"]
         ):
             comp_p50 = seg_cs["comp_price_p50"].median()
             n_cs = len(seg_cs)
 
-            # Tentativa 1: painel (within-listing elasticity) ─────────────────
-            seg_panel = panel_varying[
-                (panel_varying["neighbourhood_cleansed"] == neighbourhood)
-                & (panel_varying["room_type"] == room_type)
-            ]
+            # Tentativa 1: elasticidade ponderada dos pares de snapshots ──────
+            b = panel_b_final.get((neighbourhood, room_type))
+            a = None
 
-            a, b = None, None
-
-            if len(seg_panel) >= MIN_SEGMENT_PANEL:
-                # Demeaning por segmento para remover sazonalidade
-                dm_dp = seg_panel["delta_log_price"] - seg_panel["delta_log_price"].mean()
-                dm_do = seg_panel["delta_logit_occ"] - seg_panel["delta_logit_occ"].mean()
-
-                if dm_dp.std() > 1e-4:
-                    try:
-                        lr = LinearRegression(fit_intercept=False)
-                        lr.fit(dm_dp.values.reshape(-1, 1), dm_do.values)
-                        b_panel = float(lr.coef_[0])
-                        if b_panel < 0:  # elasticidade negativa — válida
-                            b = b_panel
-                            # Intercept: nível médio de logit(occupancy)
-                            mean_occ = seg_cs["occ_set"].clip(MIN_OCCUPANCY, 1 - MIN_OCCUPANCY).mean()
-                            mean_pp = np.log(seg_cs["price_premium"].clip(0.1, 10).mean())
-                            a = _safe_logit(np.array([mean_occ]))[0] - b * mean_pp
-                    except Exception:
-                        pass
+            if b is not None and b < 0:
+                # Intercept: nível médio de logit(occupancy) no snapshot mais recente
+                mean_occ = seg_cs["occ_latest"].clip(MIN_OCCUPANCY, 1 - MIN_OCCUPANCY).mean()
+                mean_pp = np.log(seg_cs["price_premium"].clip(0.1, 10).mean())
+                a = _safe_logit(np.array([mean_occ]))[0] - b * mean_pp
+                method = "panel"
+            else:
+                b = None  # resetar para tentar cross-sectional
 
             # Tentativa 2: cross-sectional (fallback) ─────────────────────────
             if b is None and n_cs >= MIN_SEGMENT_CROSS:
                 X = np.log(seg_cs["price_premium"].clip(0.1, 10).values).reshape(-1, 1)
-                y = _safe_logit(seg_cs["occ_set"].values)
+                y = _safe_logit(seg_cs["occ_latest"].values)
                 try:
                     lr = LinearRegression()
                     lr.fit(X, y)
@@ -190,6 +273,7 @@ class DemandPipeline:
                     if b_cs < 0:
                         b = b_cs
                         a = float(lr.intercept_)
+                        method = "cross"
                 except Exception:
                     pass
 
@@ -213,7 +297,6 @@ class DemandPipeline:
                 else float(comp_p75 / comp_p50) if comp_p50 > 0 else 1.25
             )
 
-            method = "panel" if len(seg_panel) >= MIN_SEGMENT_PANEL else "cross"
             demand_params[(neighbourhood, room_type)] = {
                 "a": float(a), "b": float(b), "n": n_cs,
                 "comp_p50": float(comp_p50),
@@ -223,13 +306,13 @@ class DemandPipeline:
                 "strategy": strategy,
             }
 
-        # ── 6. Features por listing ───────────────────────────────────────────
+        # ── 5. Features por listing ───────────────────────────────────────────
         rows = []
-        for _, row in prices_set_active.iterrows():
+        for _, row in prices_latest_active.iterrows():
             lid = row["listing_id"]
             nbh = row["neighbourhood_cleansed"]
             rt = row["room_type"]
-            occ = row["occ_set"]
+            occ = row["occ_latest"]
             pp = row["price_premium"]
             cp50 = row["comp_price_p50"]
 

@@ -59,6 +59,14 @@ LIGHTGBM_PARAMS = {
 def _load_features() -> tuple[pd.DataFrame, pd.Series]:
     df = pd.read_parquet(PROCESSED_DATA_PATH / "final_features.parquet")
     y = df["log_price"]
+
+    # Salvar mediana de days_since_last_review para uso na inferência
+    if "days_since_last_review" in df.columns:
+        median_days = float(df["days_since_last_review"].median())
+        stats_path = PROCESSED_DATA_PATH / "training_stats.joblib"
+        joblib.dump({"days_since_last_review_median": median_days}, stats_path)
+        logger.info(f"training_stats.joblib saved (days_since_last_review_median={median_days:.1f})")
+
     drop_cols = [c for c in EXCLUDE_COLS if c in df.columns]
     X = df.drop(columns=drop_cols).select_dtypes(include=[np.number])
     # Drop columns where all values are NaN, then median-impute the rest
@@ -97,6 +105,7 @@ def train_model(model_type: str = "xgboost") -> str:
         mlflow.log_params({k: v for k, v in params.items() if k != "early_stopping_rounds"})
 
         models = []
+        best_iters = []
         for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
             X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
@@ -108,12 +117,14 @@ def train_model(model_type: str = "xgboost") -> str:
                     eval_set=[(X_val, y_val)],
                     verbose=False,
                 )
+                best_iters.append(model.best_iteration)
             else:
                 model = lgb.LGBMRegressor(**LIGHTGBM_PARAMS)
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
                 )
+                best_iters.append(model.best_iteration_)
 
             oof_preds[val_idx] = model.predict(X_val)
             models.append(model)
@@ -126,11 +137,31 @@ def train_model(model_type: str = "xgboost") -> str:
         mlflow.log_metric("oof_mae", mae)
         logger.info(f"{model_type} | OOF RMSE: R${rmse:.2f} | MAE: R${mae:.2f}")
 
-        # Treinar modelo final em todos os dados
+        # Intervalos de confiança via residuais OOF (P10/P90)
+        oof_residuals = np.expm1(oof_preds) - np.expm1(y.values)
+        p10_res = float(np.percentile(oof_residuals, 10))
+        p90_res = float(np.percentile(oof_residuals, 90))
+        median_pred = float(np.median(np.expm1(oof_preds)))
+        intervals = {"p10_pct": p10_res / median_pred, "p90_pct": p90_res / median_pred}
+        intervals_path = PROCESSED_DATA_PATH / "prediction_intervals.joblib"
+        joblib.dump(intervals, intervals_path)
+        mlflow.log_metric("interval_p10_pct", intervals["p10_pct"])
+        mlflow.log_metric("interval_p90_pct", intervals["p90_pct"])
+        mlflow.log_artifact(str(intervals_path))
+        logger.info(f"Prediction intervals: P10={intervals['p10_pct']:.2%} P90={intervals['p90_pct']:.2%}")
+
+        # Treinar modelo final com n_estimators = média dos best_iteration dos folds
+        avg_best = int(round(np.mean(best_iters))) if best_iters else 500
+        mlflow.log_param("final_n_estimators", avg_best)
+        logger.info(f"Final model n_estimators={avg_best} (avg best_iteration across folds)")
+
+        final_params = {k: v for k, v in params.items() if k != "early_stopping_rounds"}
+        final_params["n_estimators"] = avg_best
+
         if model_type == "xgboost":
-            final_model = xgb.XGBRegressor(**{k: v for k, v in XGBOOST_PARAMS.items() if k != "early_stopping_rounds"})
+            final_model = xgb.XGBRegressor(**final_params)
         else:
-            final_model = lgb.LGBMRegressor(**{k: v for k, v in LIGHTGBM_PARAMS.items() if k != "early_stopping_rounds"})
+            final_model = lgb.LGBMRegressor(**final_params)
 
         final_model.fit(X, y)
 

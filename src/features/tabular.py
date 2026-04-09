@@ -40,6 +40,7 @@ class TabularFeaturePipeline:
         self.target_encoder = TargetEncoder(smoothing=10, min_samples_leaf=5)
         self.mlb = MultiLabelBinarizer(classes=TOP_AMENITIES)
         self._fitted = False
+        self._price_p99: float = 0.0
 
     def _load_raw(self) -> pd.DataFrame:
         return pd.read_parquet(PROCESSED_DATA_PATH / "listings_set2025.parquet")
@@ -50,6 +51,11 @@ class TabularFeaturePipeline:
             errors="coerce",
         )
         df = df[(df["price"] >= 10) & (df["price"] <= 50_000)].copy()
+        # Winsorização P1–P99 para reduzir influência de outliers no RMSE
+        p1 = df["price"].quantile(0.01)
+        p99 = df["price"].quantile(0.99)
+        df = df[(df["price"] >= p1) & (df["price"] <= p99)].copy()
+        self._price_p99 = float(p99)
         df["log_price"] = np.log1p(df["price"])
         return df
 
@@ -116,10 +122,11 @@ class TabularFeaturePipeline:
         if fit:
             encoder_path = PROCESSED_DATA_PATH / "encoders.joblib"
             joblib.dump(
-                {"target_encoder": self.target_encoder, "mlb": self.mlb},
+                {"target_encoder": self.target_encoder, "mlb": self.mlb,
+                 "price_p99": self._price_p99},
                 encoder_path,
             )
-            logger.info(f"Encoders saved to {encoder_path}")
+            logger.info(f"Encoders saved to {encoder_path} (price_p99={self._price_p99:.0f})")
 
         output_path = PROCESSED_DATA_PATH / "tabular_features.parquet"
         df.to_parquet(output_path, index=False)

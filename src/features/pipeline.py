@@ -17,6 +17,7 @@ def merge_all_features(
     yolo_path: str | None = None,
     reviews_path: str | None = None,
     competition_path: str | None = None,
+    demand_path: str | None = None,
 ) -> str:
     logger.info("Merging all feature sources...")
 
@@ -100,6 +101,23 @@ def merge_all_features(
         comp_cols = [c for c in tabular.columns if c.startswith("comp_")]
         tabular[comp_cols] = tabular[comp_cols].fillna(tabular[comp_cols].median())
         logger.info(f"Competition features merged: {competition_feats.shape}")
+
+    # Merge com features de demanda (opcional — só se o arquivo existir)
+    demand_file = Path(demand_path) if demand_path else PROCESSED_DATA_PATH / "demand_features.parquet"
+    if demand_file.exists() and "id" in tabular.columns:
+        demand_feats = pd.read_parquet(demand_file)
+        tabular = tabular.merge(
+            demand_feats,
+            left_on="id",
+            right_index=True,
+            how="left",
+        )
+        demand_cols = ["occupancy_rate", "price_premium", "revenue_optimal_price",
+                       "expected_occupancy_at_optimal"]
+        for col in demand_cols:
+            if col in tabular.columns:
+                tabular[col] = tabular[col].fillna(tabular[col].median())
+        logger.info(f"Demand features merged: {demand_feats.shape}")
 
     output_path = PROCESSED_DATA_PATH / "final_features.parquet"
     tabular.to_parquet(output_path, index=False)

@@ -1,3 +1,13 @@
+# Demo
+streamlit>=1.35.0
+streamlit-folium>=0.20.0
+folium>=0.16.0
+requests>=2.31.0
+
+# Scraper
+playwright>=1.44.0
+beautifulsoup4>=4.12.0
+
 # Core
 pandas==2.2.2
 numpy==1.26.4

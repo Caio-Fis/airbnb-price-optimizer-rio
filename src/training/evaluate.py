@@ -2,6 +2,7 @@
 Avaliação e promoção de modelo campeão no MLflow Model Registry.
 """
 import os
+from datetime import datetime
 from pathlib import Path
 
 import joblib
@@ -60,5 +61,15 @@ def register_champion(run_id: str) -> None:
     if encoders_src.exists():
         import shutil
         shutil.copy(encoders_src, model_path / "encoders.joblib")
+
+    # Salvar métricas do campeão para o monitoramento de drift
+    run = client.get_run(run_id)
+    champion_rmse = run.data.metrics.get("oof_rmse")
+    if champion_rmse is not None:
+        joblib.dump(
+            {"oof_rmse": champion_rmse, "registered_at": str(datetime.utcnow())},
+            model_path / "baseline_metrics.joblib",
+        )
+        logger.info(f"Baseline metrics saved: RMSE=R${champion_rmse:.2f}")
 
     logger.info("Model and encoders saved to models/ for API serving")

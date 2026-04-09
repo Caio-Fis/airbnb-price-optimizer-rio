@@ -16,8 +16,21 @@ from evidently.report import Report
 from loguru import logger
 
 PROCESSED_DATA_PATH = Path(os.getenv("PROCESSED_DATA_PATH", "data/processed"))
-BASELINE_RMSE = float(os.getenv("BASELINE_RMSE", "50.0"))  # R$ — definir após primeiro treino
 RMSE_THRESHOLD = float(os.getenv("RMSE_THRESHOLD", "1.2"))  # 20% de degradação permitida
+
+
+def _load_baseline_rmse() -> float:
+    """Carrega RMSE do campeão registrado; fallback em env var."""
+    path = Path("models/baseline_metrics.joblib")
+    if path.exists():
+        try:
+            return float(joblib.load(path)["oof_rmse"])
+        except Exception:
+            pass
+    return float(os.getenv("BASELINE_RMSE", "50.0"))
+
+
+BASELINE_RMSE = _load_baseline_rmse()
 
 
 class DriftDetector:

@@ -77,6 +77,7 @@ with DAG(
             clip_path=ti.xcom_pull(task_ids="build_clip_features", key="clip_path"),
             yolo_path=ti.xcom_pull(task_ids="build_yolo_features", key="yolo_path"),
             competition_path=ti.xcom_pull(task_ids="build_competition_features", key="competition_path"),
+            demand_path=ti.xcom_pull(task_ids="build_demand_features", key="demand_path"),
         )
         context["ti"].xcom_push(key="features_path", value=output_path)
 
