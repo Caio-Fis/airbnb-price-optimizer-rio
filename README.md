@@ -24,6 +24,44 @@ Dado um listing do Airbnb (bairro, tipo de quarto, comodidades, localização et
 
 ---
 
+## Estimação de Demanda
+
+A inovação central do projeto: usar os **dois snapshots** (Jun/2025 → Set/2025) para estimar elasticidade-preço por segmento (bairro × tipo de quarto).
+
+Para cada listing presente nos dois períodos, estimamos:
+
+```
+Δlogit(occupancy) ~ b × Δlog(price)
+```
+
+O coeficiente `b` é a elasticidade. Com ela, calculamos o preço ótimo:
+
+| Estratégia | Condição | Como funciona |
+|---|---|---|
+| `revenue_optimal` | `b < -1` (elástica) | Grid search: `argmax[ price × sigmoid(a + b·log(price/p50)) ]` |
+| `premium_positioning` | `-1 ≤ b < 0` (inelástica) | Sobe até P75 local — perde pouca ocupação, ganha margem |
+| `fallback` | Dados insuficientes | Retorna mediana local |
+
+256 segmentos com parâmetros estimados, cobrindo os principais bairros do Rio.
+
+---
+
+## Modelo
+
+- **Algoritmo:** LightGBM (vencedor) e XGBoost, comparados via 5-fold CV
+- **Target:** `log(price)` — previsão em escala log, convertida com `expm1`
+- **Métricas OOF:**
+
+| Modelo | RMSE (R$) | MAE (R$) |
+|---|---|---|
+| LightGBM | 656 | 63 |
+| XGBoost | 688 | 63 |
+
+- **85 features**: tabular, amenities (MLB), bairro (target encoding), geo (Haversine), reviews, competição local, sazonalidade (Holt-Winters)
+- **Tracking:** MLflow com registro de runs, métricas por fold e artefatos
+
+---
+
 ## Arquitetura
 
 ```
@@ -65,26 +103,11 @@ Inside Airbnb (Jun + Set 2025)
 | Orquestração | Apache Airflow (Docker Compose) |
 | Feature Engineering | pandas, statsmodels (Holt-Winters), scikit-learn |
 | Modelos | XGBoost 2.0, LightGBM 4.3 |
-| Tracking | MLflow (local) |
+| Tracking | MLflow |
+| Monitoramento | Evidently AI (data drift) |
 | Serving | FastAPI + uvicorn + slowapi |
 | Deploy | Docker → Artifact Registry → Cloud Run (GCP) |
 | Dados | DVC + GCS |
-
----
-
-## Dados
-
-Fonte: [Inside Airbnb](http://insideairbnb.com/) — Rio de Janeiro
-
-| Arquivo | Descrição |
-|---|---|
-| `listings_jun2025.parquet` | 38.4k listings, Jun/2025 |
-| `listings_set2025.parquet` | 38.1k listings, Set/2025 (base de treino) |
-| `calendar_jun2025.parquet` | 15.5M linhas — disponibilidade diária |
-| `calendar_set2025.parquet` | 15.7M linhas — disponibilidade diária |
-| `reviews_set2025.parquet` | 1.1M reviews com texto |
-
-> Os dados não estão versionados no git. Use `dvc pull` para baixar do GCS.
 
 ---
 
@@ -153,11 +176,34 @@ curl -X POST https://airbnb-price-api-966533570956.us-central1.run.app/predict \
 
 ---
 
-## Como rodar localmente
+## Notebooks
 
-### Pré-requisitos
-- Python 3.12+
-- Docker
+| Notebook | Conteúdo |
+|---|---|
+| `01_eda.ipynb` | EDA de listings e calendário — distribuições, sazonalidade, comparação Jun/Set |
+| `02_feature_engineering.ipynb` | Validação de features: HW, target encoding, reviews, geo, estimação de demanda e curvas de elasticidade |
+| `02_reviews_analysis.ipynb` | Análise de sentimento, velocidade/recência, BERTopic |
+| `03_modeling.ipynb` | XGBoost vs LightGBM, SHAP, análise de erros, pipeline de otimização, documentação de métricas |
+
+---
+
+## Dados
+
+Fonte: [Inside Airbnb](http://insideairbnb.com/) — Rio de Janeiro
+
+| Arquivo | Descrição |
+|---|---|
+| `listings_jun2025.parquet` | 38.4k listings, Jun/2025 |
+| `listings_set2025.parquet` | 38.1k listings, Set/2025 (base de treino) |
+| `calendar_jun2025.parquet` | 15.5M linhas — disponibilidade diária |
+| `calendar_set2025.parquet` | 15.7M linhas — disponibilidade diária |
+| `reviews_set2025.parquet` | 1.1M reviews com texto |
+
+> Os dados não estão versionados no git. Use `dvc pull` para baixar do GCS.
+
+---
+
+## Como rodar localmente
 
 ### API sem Docker
 ```bash
@@ -183,70 +229,15 @@ Serviços:
 
 ---
 
-## Pipeline de Features
-
-```
-listings_set2025.parquet
-        │
-        ├── TabularFeaturePipeline    → preço, amenities, room_type, bairro
-        ├── SeasonalityPipeline       → Holt-Winters (7-day), hw_seasonal por DOW
-        ├── GeoFeaturePipeline        → distâncias Haversine a 9 POIs + metrô (OSM)
-        ├── ReviewFeaturePipeline     → velocity, recência, keyword negativo
-        ├── CompetitionPipeline       → P25/P50/P75/rank por (bairro × room_type)
-        └── DemandPipeline            → elasticidade painel Jun→Set, revenue_optimal
-                │
-                ▼
-        final_features.parquet  (~85 features, 38k listings)
-```
-
-### Estimação de Demanda
-
-Para cada segmento (bairro × tipo de quarto), usamos listings presentes nos dois snapshots para estimar:
-
-```
-Δlogit(occupancy) ~ b × Δlog(price)
-```
-
-- `b < -1`: demanda elástica → grid search maximiza `price × occupancy`
-- `-1 ≤ b < 0`: demanda inelástica → `premium_positioning` (sobe até P75)
-- Fallback: mediana local
-
----
-
-## Modelo
-
-- **Algoritmo:** LightGBM (vencedor) / XGBoost
-- **Target:** `log(price)` — previsão no espaço log, convertida com `expm1`
-- **Validação:** 5-fold cross-validation out-of-fold
-- **Métricas OOF (LightGBM):**
-  - RMSE: R$643 (~19% da mediana de R$316)
-  - MAE: R$59 (~19% da mediana)
-- **Tracking:** MLflow local
-
----
-
-## Notebooks
-
-| Notebook | Conteúdo |
-|---|---|
-| `01_eda.ipynb` | EDA de listings e calendário — distribuições, sazonalidade, comparação Jun/Set |
-| `02_feature_engineering.ipynb` | Validação de features: HW, target encoding, reviews, geo, estimação de demanda e curvas de elasticidade |
-| `02_reviews_analysis.ipynb` | Análise de sentimento, velocidade/recência, BERTopic |
-| `03_modeling.ipynb` | XGBoost vs LightGBM, SHAP, análise de erros, pipeline de otimização, documentação de métricas |
-
----
-
 ## Deploy (Cloud Run)
 
 ```bash
-# Build e push da imagem
 docker build -f docker/api/Dockerfile -t airbnb-api:latest .
-docker tag airbnb-api:latest us-central1-docker.pkg.dev/PROJECT_ID/airbnb-optimizer/api:latest
-docker push us-central1-docker.pkg.dev/PROJECT_ID/airbnb-optimizer/api:latest
+docker tag airbnb-api:latest us-central1-docker.pkg.dev/YOUR_PROJECT_ID/airbnb-optimizer/api:latest
+docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/airbnb-optimizer/api:latest
 
-# Deploy
 gcloud run deploy airbnb-price-api \
-  --image=us-central1-docker.pkg.dev/PROJECT_ID/airbnb-optimizer/api:latest \
+  --image=us-central1-docker.pkg.dev/YOUR_PROJECT_ID/airbnb-optimizer/api:latest \
   --region=us-central1 \
   --allow-unauthenticated \
   --memory=2Gi --cpu=1 \
@@ -259,21 +250,24 @@ gcloud run deploy airbnb-price-api \
 ## Estrutura do Projeto
 
 ```
-├── dags/                    # Airflow DAGs
+├── dags/                    # Airflow DAGs (ingestion, features, training, monitoring)
 ├── data/                    # Dados (não versionados — DVC)
 │   ├── raw/                 # CSV.gz do Inside Airbnb
 │   └── processed/           # Parquet + artefatos de inferência
-├── docker/                  # Dockerfiles
+├── docker/                  # Dockerfiles (api, airflow, mlflow)
+├── docs/evidence/           # Relatório Evidently de drift
 ├── infra/                   # cloudrun.yaml, cloudbuild.yaml
 ├── models/                  # Modelo e encoders de produção
 ├── notebooks/               # EDA, feature engineering, modeling
 ├── scripts/                 # convert_to_parquet.py
 ├── src/
-│   ├── features/            # Pipelines de features
+│   ├── features/            # Pipelines: tabular, geo, reviews, competition, demand
 │   ├── ingestion/           # Download Inside Airbnb
+│   ├── monitoring/          # Evidently drift detection
 │   ├── serving/             # FastAPI (main, predict, schemas, security, settings)
 │   └── training/            # Treino XGB/LGB + MLflow
-├── requirements.txt         # Dependências completas (treino + features)
+├── tests/                   # 17 testes (api, features, model)
+├── requirements.txt         # Dependências completas
 ├── requirements-api.txt     # Dependências mínimas (serving)
 └── docker-compose.yml       # Stack local completa
 ```
