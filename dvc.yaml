@@ -6,6 +6,23 @@ stages:
     outs:
       - data/raw
 
+  geo_features:
+    cmd: python -c "from src.features.geo import GeoFeaturePipeline; GeoFeaturePipeline().run()"
+    deps:
+      - src/features/geo.py
+      - data/processed/listings_set2025.parquet
+    outs:
+      - data/processed/geo_features.parquet
+      - data/processed/geo_metro_cache.json
+
+  reviews_features:
+    cmd: python -c "from src.features.reviews import ReviewFeaturePipeline; ReviewFeaturePipeline().run()"
+    deps:
+      - src/features/reviews.py
+      - data/processed/reviews_set2025.parquet
+    outs:
+      - data/processed/reviews_features.parquet
+
   tabular_features:
     cmd: python -c "from src.features.tabular import TabularFeaturePipeline; TabularFeaturePipeline().run(fit=True)"
     deps:
@@ -39,6 +56,15 @@ stages:
     outs:
       - data/processed/yolo_features.parquet
 
+  competition_features:
+    cmd: python -c "from src.features.competition import CompetitionFeaturePipeline; CompetitionFeaturePipeline().run()"
+    deps:
+      - src/features/competition.py
+      - data/processed/tabular_features.parquet
+    outs:
+      - data/processed/competition_features.parquet
+      - data/processed/competition_stats.joblib
+
   merge_features:
     cmd: >
       python -c "
@@ -53,8 +79,7 @@ stages:
       - src/features/pipeline.py
       - data/processed/tabular_features.parquet
       - data/processed/seasonality_features.parquet
-      - data/processed/clip_features.parquet
-      - data/processed/yolo_features.parquet
+      - data/processed/competition_features.parquet
     outs:
       - data/processed/final_features.parquet
 

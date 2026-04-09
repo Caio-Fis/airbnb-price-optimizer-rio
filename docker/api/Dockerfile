@@ -1,17 +1,30 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libglib2.0-0 \
+    libgomp1 \
     curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-api.txt .
+RUN pip install --no-cache-dir -r requirements-api.txt
 
 COPY src/ ./src/
+
+# Artefatos de inferência (modelo + encoders + lookup tables)
+COPY models/model.joblib ./models/model.joblib
+COPY models/encoders.joblib ./models/encoders.joblib
+COPY data/processed/feature_names.joblib ./data/processed/feature_names.joblib
+COPY data/processed/competition_stats.joblib ./data/processed/competition_stats.joblib
+COPY data/processed/demand_params.joblib ./data/processed/demand_params.joblib
+COPY data/processed/hw_seasonal_by_dow.joblib ./data/processed/hw_seasonal_by_dow.joblib
+COPY data/processed/geo_metro_cache.json ./data/processed/geo_metro_cache.json
+
+ENV MODEL_PATH=models/model.joblib \
+    ENCODERS_PATH=models/encoders.joblib \
+    PROCESSED_DATA_PATH=data/processed \
+    ENVIRONMENT=production
 
 EXPOSE 8000
 

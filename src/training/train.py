@@ -61,6 +61,9 @@ def _load_features() -> tuple[pd.DataFrame, pd.Series]:
     y = df["log_price"]
     drop_cols = [c for c in EXCLUDE_COLS if c in df.columns]
     X = df.drop(columns=drop_cols).select_dtypes(include=[np.number])
+    # Drop columns where all values are NaN, then median-impute the rest
+    X = X.dropna(axis=1, how="all")
+    X = X.fillna(X.median())
     return X, y
 
 

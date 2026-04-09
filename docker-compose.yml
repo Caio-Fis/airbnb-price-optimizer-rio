@@ -6,7 +6,7 @@ x-airflow-common: &airflow-common
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
@@ -105,12 +105,26 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MODEL_PATH: /app/models/model.joblib
       ENCODERS_PATH: /app/models/encoders.joblib
+      PROCESSED_DATA_PATH: /app/data/processed
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/service-account.json
+      # Segurança — sobrescreva no .env ou via secrets em produção
+      API_KEYS_RAW: ${API_KEYS_RAW:-}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      RATE_LIMIT_PREDICT: ${RATE_LIMIT_PREDICT:-30/minute}
+      RATE_LIMIT_HEALTH: ${RATE_LIMIT_HEALTH:-120/minute}
     volumes:
-      - ./models:/app/models
-      - ./credentials:/app/credentials
+      - ./models:/app/models:ro
+      - ./data/processed:/app/data/processed:ro
+      - ./credentials:/app/credentials:ro
     depends_on:
       - mlflow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     restart: always
 
 volumes:

@@ -1,4 +1,4 @@
-.PHONY: help setup up down restart logs test lint format
+.PHONY: help setup up down restart logs test lint format parquet
 
 help:
 	@echo "Available commands:"
@@ -10,6 +10,7 @@ help:
 	@echo "  make test       - Run tests"
 	@echo "  make lint       - Run ruff linter"
 	@echo "  make format     - Format code with ruff"
+	@echo "  make parquet    - Convert raw CSV.gz to Parquet (run once)"
 	@echo "  make train      - Trigger training DAG manually"
 	@echo "  make predict    - Test API prediction endpoint"
 
@@ -40,6 +41,9 @@ lint:
 
 format:
 	ruff format src/ dags/ tests/
+
+parquet:
+	python scripts/convert_to_parquet.py
 
 train:
 	docker compose exec airflow-scheduler airflow dags trigger training_dag

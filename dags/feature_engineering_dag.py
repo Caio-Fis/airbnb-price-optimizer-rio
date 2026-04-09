@@ -58,6 +58,16 @@ with DAG(
         output_path = extractor.run()
         context["ti"].xcom_push(key="yolo_path", value=output_path)
 
+    def build_competition_features(**context):
+        from src.features.competition import CompetitionFeaturePipeline
+        output_path = CompetitionFeaturePipeline().run()
+        context["ti"].xcom_push(key="competition_path", value=output_path)
+
+    def build_demand_features(**context):
+        from src.features.demand import DemandPipeline
+        output_path = DemandPipeline().run()
+        context["ti"].xcom_push(key="demand_path", value=output_path)
+
     def merge_features(**context):
         from src.features.pipeline import merge_all_features
         ti = context["ti"]
@@ -66,6 +76,7 @@ with DAG(
             seasonality_path=ti.xcom_pull(task_ids="build_seasonality_features", key="seasonality_path"),
             clip_path=ti.xcom_pull(task_ids="build_clip_features", key="clip_path"),
             yolo_path=ti.xcom_pull(task_ids="build_yolo_features", key="yolo_path"),
+            competition_path=ti.xcom_pull(task_ids="build_competition_features", key="competition_path"),
         )
         context["ti"].xcom_push(key="features_path", value=output_path)
 
@@ -73,6 +84,12 @@ with DAG(
     t_seasonal = PythonOperator(task_id="build_seasonality_features", python_callable=build_seasonality_features)
     t_clip = PythonOperator(task_id="build_clip_features", python_callable=build_clip_features)
     t_yolo = PythonOperator(task_id="build_yolo_features", python_callable=build_yolo_features)
+    t_competition = PythonOperator(task_id="build_competition_features", python_callable=build_competition_features)
+    t_demand = PythonOperator(task_id="build_demand_features", python_callable=build_demand_features)
     t_merge = PythonOperator(task_id="merge_features", python_callable=merge_features)
 
-    wait_for_ingestion >> [t_tabular, t_seasonal, t_clip, t_yolo] >> t_merge
+    # competition depende do tabular (precisa de preços por bairro)
+    # demand depende do tabular + competition
+    wait_for_ingestion >> [t_tabular, t_seasonal, t_clip, t_yolo]
+    t_tabular >> t_competition >> t_demand
+    [t_tabular, t_seasonal, t_clip, t_yolo, t_competition, t_demand] >> t_merge

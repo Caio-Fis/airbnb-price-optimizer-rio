@@ -48,6 +48,9 @@ airflow.cfg
 .idea/
 *.swp
 
+# Claude Code
+CLAUDE.md
+
 # OS
 .DS_Store
 Thumbs.db

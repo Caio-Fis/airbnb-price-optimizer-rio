@@ -5,7 +5,7 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/airbnb-optimizer/api:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$project-b0fa2d28-630e-4922-b41/airbnb-optimizer/api:$COMMIT_SHA'
       - '-f'
       - 'docker/api/Dockerfile'
       - '.'
@@ -14,7 +14,7 @@ steps:
     id: 'push-api'
     args:
       - 'push'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/airbnb-optimizer/api:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$project-b0fa2d28-630e-4922-b41/airbnb-optimizer/api:$COMMIT_SHA'
     waitFor: ['build-api']
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -24,7 +24,7 @@ steps:
       - 'run'
       - 'deploy'
       - 'airbnb-price-api'
-      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/airbnb-optimizer/api:$COMMIT_SHA'
+      - '--image=us-central1-docker.pkg.dev/$project-b0fa2d28-630e-4922-b41/airbnb-optimizer/api:$COMMIT_SHA'
       - '--region=us-central1'
       - '--platform=managed'
       - '--allow-unauthenticated'
@@ -32,11 +32,11 @@ steps:
       - '--cpu=2'
       - '--min-instances=0'
       - '--max-instances=5'
-      - '--set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCP_BUCKET_NAME=airbnb-price-optimizer'
+      - '--set-env-vars=GCP_project-b0fa2d28-630e-4922-b41=$project-b0fa2d28-630e-4922-b41,GCP_BUCKET_NAME=airbnb-price-optimizer'
     waitFor: ['push-api']
 
 images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/airbnb-optimizer/api:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/$project-b0fa2d28-630e-4922-b41/airbnb-optimizer/api:$COMMIT_SHA'
 
 options:
   logging: CLOUD_LOGGING_ONLY

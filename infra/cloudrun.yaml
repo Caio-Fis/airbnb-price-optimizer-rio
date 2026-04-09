@@ -9,31 +9,31 @@ spec:
     metadata:
       annotations:
         autoscaling.knative.dev/minScale: "0"
-        autoscaling.knative.dev/maxScale: "5"
-        run.googleapis.com/cpu-throttling: "false"
+        autoscaling.knative.dev/maxScale: "3"
     spec:
       containerConcurrency: 80
-      timeoutSeconds: 30
+      timeoutSeconds: 60
       containers:
-        - image: us-central1-docker.pkg.dev/PROJECT_ID/airbnb-optimizer/api:latest
+        - image: us-central1-docker.pkg.dev/project-b0fa2d28-630e-4922-b41/airbnb-optimizer/api:latest
           ports:
             - containerPort: 8000
           resources:
             limits:
-              cpu: "2"
-              memory: 2Gi
+              cpu: "1"
+              memory: 1Gi
           env:
-            - name: GCP_PROJECT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: airbnb-api-secrets
-                  key: GCP_PROJECT_ID
-            - name: GCP_BUCKET_NAME
-              value: airbnb-price-optimizer
-            - name: MLFLOW_TRACKING_URI
-              value: http://mlflow-service:5000
+            - name: ENVIRONMENT
+              value: production
+            - name: MODEL_PATH
+              value: models/model.joblib
+            - name: ENCODERS_PATH
+              value: models/encoders.joblib
+            - name: PROCESSED_DATA_PATH
+              value: data/processed
+            - name: API_KEYS_RAW
+              value: ""
           livenessProbe:
             httpGet:
               path: /health
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 30

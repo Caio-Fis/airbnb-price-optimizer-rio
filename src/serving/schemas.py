@@ -1,9 +1,10 @@
+from datetime import date
 from typing import Optional
 from pydantic import BaseModel, Field
 
 
 class PredictionRequest(BaseModel):
-    neighbourhood: str = Field(..., example="Pinheiros")
+    neighbourhood: str = Field(..., example="Copacabana")
     room_type: str = Field(..., example="Entire home/apt")
     accommodates: int = Field(..., ge=1, le=20, example=4)
     bathrooms: float = Field(..., ge=0, le=10, example=1.0)
@@ -23,13 +24,23 @@ class PredictionRequest(BaseModel):
         default=[],
         example=["wifi", "kitchen", "air conditioning"],
     )
+    # Localização — permite calcular distâncias geo reais
+    latitude: Optional[float] = Field(default=None, example=-22.9711)
+    longitude: Optional[float] = Field(default=None, example=-43.1822)
+    # Data alvo — ajusta sazonalidade semanal/mensal na previsão
+    target_date: Optional[date] = Field(default=None, example="2025-12-20")
 
 
 class PredictionResponse(BaseModel):
-    predicted_price: float = Field(..., description="Preço ótimo previsto em R$")
-    price_range_low: float = Field(..., description="Limite inferior do intervalo (R$)")
-    price_range_high: float = Field(..., description="Limite superior do intervalo (R$)")
+    predicted_price: float = Field(..., description="Benchmark de mercado: o que listings similares cobram (R$)")
+    price_range_low: float = Field(..., description="Limite inferior do intervalo de mercado (R$)")
+    price_range_high: float = Field(..., description="Limite superior do intervalo de mercado (R$)")
     confidence: str = Field(..., description="Confiança da previsão: low/medium/high")
+    local_median_price: Optional[float] = Field(default=None, description="Mediana de preço do bairro+tipo (R$)")
+    seasonal_note: Optional[str] = Field(default=None, description="Observação sobre sazonalidade da data alvo")
+    revenue_optimal_price: Optional[float] = Field(default=None, description="Preço que maximiza receita esperada (R$)")
+    expected_occupancy_pct: Optional[float] = Field(default=None, description="Ocupação esperada no preço ótimo (%)")
+    pricing_strategy: Optional[str] = Field(default=None, description="Estratégia: revenue_optimal | premium_positioning | fallback")
 
 
 class HealthResponse(BaseModel):

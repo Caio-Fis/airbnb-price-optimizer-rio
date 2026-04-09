@@ -25,7 +25,7 @@ CITY = os.getenv("INSIDE_AIRBNB_CITY", "rio-de-janeiro")
 
 LOW_CARD_COLS = ["room_type", "cancellation_policy", "host_is_superhost"]
 HIGH_CARD_COLS = ["neighbourhood_cleansed"]  # target encoding
-BINARY_COLS = ["instant_bookable"]
+BINARY_COLS = ["instant_bookable", "has_availability"]
 NUMERIC_COLS = [
     "accommodates", "bathrooms", "bedrooms", "beds",
     "minimum_nights", "maximum_nights",
@@ -42,18 +42,14 @@ class TabularFeaturePipeline:
         self._fitted = False
 
     def _load_raw(self) -> pd.DataFrame:
-        path = RAW_DATA_PATH / f"{CITY}_listings.csv.gz"
-        df = pd.read_csv(path, compression="gzip", low_memory=False)
-        return df
+        return pd.read_parquet(PROCESSED_DATA_PATH / "listings_set2025.parquet")
 
     def _clean_price(self, df: pd.DataFrame) -> pd.DataFrame:
-        df["price"] = (
-            df["price"].astype(str)
-            .str.replace(r"[$,]", "", regex=True)
-            .astype(float)
+        df["price"] = pd.to_numeric(
+            df["price"].astype(str).str.replace(r"[$,]", "", regex=True),
+            errors="coerce",
         )
-        # Remove outliers extremos
-        df = df[(df["price"] >= 10) & (df["price"] <= 10_000)]
+        df = df[(df["price"] >= 10) & (df["price"] <= 50_000)].copy()
         df["log_price"] = np.log1p(df["price"])
         return df
 
@@ -139,23 +135,23 @@ class SeasonalityPipeline:
 
     def run(self) -> str:
         PROCESSED_DATA_PATH.mkdir(parents=True, exist_ok=True)
-        calendar_path = RAW_DATA_PATH / f"{CITY}_calendar.csv.gz"
 
-        df = pd.read_csv(calendar_path, compression="gzip", parse_dates=["date"])
-        df["price"] = (
-            df["price"].astype(str)
-            .str.replace(r"[$,]", "", regex=True)
-            .astype(float)
-        )
-        df = df.dropna(subset=["price"])
+        # Preço do calendário é 100% nulo nesse scrape — usar disponibilidade diária
+        def _load_avail(snapshot: str) -> pd.Series:
+            df = pd.read_parquet(
+                PROCESSED_DATA_PATH / f"calendar_{snapshot}.parquet",
+                columns=["date", "available"],
+            )
+            df["is_avail"] = (df["available"] == "t").astype("int8")
+            return df.groupby("date")["is_avail"].mean().mul(100).sort_index()
 
-        # Série temporal: preço médio diário na cidade
-        daily_price = df.groupby("date")["price"].median().sort_index()
+        agg_jun = _load_avail("jun2025")
+        agg_set = _load_avail("set2025")
+        daily_avail = agg_jun.combine_first(agg_set)
+        daily_avail.update(agg_set)
+        daily_avail = daily_avail.asfreq("D").interpolate()
 
-        # Garantir frequência diária contínua
-        daily_price = daily_price.asfreq("D").interpolate()
-
-        seasonality_features = self._extract_hw_features(daily_price)
+        seasonality_features = self._extract_hw_features(daily_avail)
 
         output_path = PROCESSED_DATA_PATH / "seasonality_features.parquet"
         seasonality_features.to_parquet(output_path)
@@ -188,4 +184,12 @@ class SeasonalityPipeline:
             f"Holt-Winters fitted. AIC: {fit.aic:.2f} | "
             f"Seasonal amplitude: {features['hw_seasonal'].std():.2f}"
         )
+
+        # Salvar lookup sazonal por dia da semana para inferência prospectiva
+        seasonal_by_dow = (
+            features.groupby("day_of_week")["hw_seasonal"].mean().to_dict()
+        )
+        joblib.dump(seasonal_by_dow, PROCESSED_DATA_PATH / "hw_seasonal_by_dow.joblib")
+        logger.info("Seasonal lookup by day_of_week saved.")
+
         return features

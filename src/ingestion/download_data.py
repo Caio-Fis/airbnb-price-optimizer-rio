@@ -29,6 +29,10 @@ CITY_SNAPSHOTS = {
     ],
 }
 
+CITY_VISUALISATIONS = {
+    "rio-de-janeiro": f"{INSIDE_AIRBNB_BASE}/rj/rio-de-janeiro/2025-09-26/visualisations",
+}
+
 SNAPSHOT_DATES = {
     "rio-de-janeiro": ["2025-06-24", "2025-09-26"],
 }
@@ -93,6 +97,39 @@ def download_calendar_csv(city: str = CITY) -> str:
     combined.to_csv(output_path, index=False, compression="gzip")
     logger.info(f"Combined calendar: {len(combined)} rows → {output_path}")
     return str(output_path)
+
+
+def download_reviews_csv(city: str = CITY) -> list[str]:
+    """Baixa reviews.csv.gz de todos os snapshots."""
+    paths = []
+    for url, date in zip(CITY_SNAPSHOTS[city], SNAPSHOT_DATES[city]):
+        output_path = RAW_DATA_PATH / f"{city}_reviews_{date}.csv.gz"
+        if not output_path.exists():
+            _download_file(f"{url}/reviews.csv.gz", output_path)
+        else:
+            logger.info(f"Já existe: {output_path}")
+        paths.append(str(output_path))
+    return paths
+
+
+def download_neighbourhoods(city: str = CITY) -> tuple[str, str]:
+    """Baixa neighbourhoods.geojson e neighbourhoods.csv (snapshot mais recente)."""
+    vis_url = CITY_VISUALISATIONS[city]
+
+    geojson_path = RAW_DATA_PATH / f"{city}_neighbourhoods.geojson"
+    csv_path = RAW_DATA_PATH / f"{city}_neighbourhoods.csv"
+
+    if not geojson_path.exists():
+        _download_file(f"{vis_url}/neighbourhoods.geojson", geojson_path)
+    else:
+        logger.info(f"Já existe: {geojson_path}")
+
+    if not csv_path.exists():
+        _download_file(f"{vis_url}/neighbourhoods.csv", csv_path)
+    else:
+        logger.info(f"Já existe: {csv_path}")
+
+    return str(geojson_path), str(csv_path)
 
 
 def download_listing_images(listings_path: str, max_images: int = 5000) -> None:
