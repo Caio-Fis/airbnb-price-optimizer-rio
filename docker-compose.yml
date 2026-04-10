@@ -110,7 +110,7 @@ services:
       # Segurança — sobrescreva no .env ou via secrets em produção
       API_KEYS_RAW: ${API_KEYS_RAW:-}
       ENVIRONMENT: ${ENVIRONMENT:-production}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-["*"]}
       RATE_LIMIT_PREDICT: ${RATE_LIMIT_PREDICT:-30/minute}
       RATE_LIMIT_HEALTH: ${RATE_LIMIT_HEALTH:-120/minute}
     volumes:

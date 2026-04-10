@@ -4,6 +4,7 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 USER airflow

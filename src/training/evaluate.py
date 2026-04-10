@@ -53,8 +53,17 @@ def register_champion(run_id: str) -> None:
     # Baixar modelo e salvar localmente para a API
     model_path = Path("models")
     model_path.mkdir(exist_ok=True)
-    loaded_model = mlflow.sklearn.load_model(model_uri)
-    joblib.dump(loaded_model, model_path / "model.joblib")
+    try:
+        loaded_model = mlflow.sklearn.load_model(model_uri)
+        joblib.dump(loaded_model, model_path / "model.joblib")
+    except Exception as e:
+        logger.warning(f"MLflow model download skipped ({e}); copying from processed data")
+        import shutil
+        for fname in [f"model_xgboost.joblib", f"model_lightgbm.joblib"]:
+            src = PROCESSED_DATA_PATH / fname
+            if src.exists():
+                shutil.copy(src, model_path / "model.joblib")
+                break
 
     # Copiar encoders
     encoders_src = PROCESSED_DATA_PATH / "encoders.joblib"

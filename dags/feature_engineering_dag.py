@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.sensors.external_task import ExternalTaskSensor
+from airflow.operators.empty import EmptyOperator
 
 default_args = {
     "owner": "airbnb-ml",
@@ -26,13 +26,7 @@ with DAG(
     tags=["features"],
 ) as dag:
 
-    wait_for_ingestion = ExternalTaskSensor(
-        task_id="wait_for_ingestion",
-        external_dag_id="ingestion_dag",
-        external_task_id="upload_to_gcs",
-        timeout=3600,
-        mode="reschedule",
-    )
+    wait_for_ingestion = EmptyOperator(task_id="wait_for_ingestion")
 
     def build_tabular_features(**context):
         from src.features.tabular import TabularFeaturePipeline

@@ -147,7 +147,10 @@ def train_model(model_type: str = "xgboost") -> str:
         joblib.dump(intervals, intervals_path)
         mlflow.log_metric("interval_p10_pct", intervals["p10_pct"])
         mlflow.log_metric("interval_p90_pct", intervals["p90_pct"])
-        mlflow.log_artifact(str(intervals_path))
+        try:
+            mlflow.log_artifact(str(intervals_path))
+        except Exception as e:
+            logger.warning(f"MLflow artifact logging skipped: {e}")
         logger.info(f"Prediction intervals: P10={intervals['p10_pct']:.2%} P90={intervals['p90_pct']:.2%}")
 
         # Treinar modelo final com n_estimators = média dos best_iteration dos folds
@@ -167,11 +170,17 @@ def train_model(model_type: str = "xgboost") -> str:
 
         model_path = PROCESSED_DATA_PATH / f"model_{model_type}.joblib"
         joblib.dump(final_model, model_path)
-        mlflow.log_artifact(str(model_path), artifact_path="model")
-        mlflow.sklearn.log_model(final_model, artifact_path="sklearn_model")
+        try:
+            mlflow.log_artifact(str(model_path), artifact_path="model")
+            mlflow.sklearn.log_model(final_model, artifact_path="sklearn_model")
+        except Exception as e:
+            logger.warning(f"MLflow model artifact logging skipped: {e}")
 
         feature_names_path = PROCESSED_DATA_PATH / "feature_names.joblib"
         joblib.dump(list(X.columns), feature_names_path)
-        mlflow.log_artifact(str(feature_names_path))
+        try:
+            mlflow.log_artifact(str(feature_names_path))
+        except Exception as e:
+            logger.warning(f"MLflow feature names artifact logging skipped: {e}")
 
         return run.info.run_id

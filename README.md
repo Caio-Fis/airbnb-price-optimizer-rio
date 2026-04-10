@@ -20,7 +20,7 @@ Dado um listing do Airbnb (bairro, tipo de quarto, comodidades, localização et
 | `pricing_strategy` | `revenue_optimal` / `premium_positioning` / `fallback` |
 | `confidence` | `low` / `medium` / `high` baseado em histórico de reviews |
 | `local_median_price` | P50 do segmento (bairro × tipo de quarto) |
-| `price_range_low/high` | Intervalo ±15% em torno do `predicted_price` |
+| `price_range_low/high` | Intervalo de confiança data-driven (P10/P90 dos resíduos OOF) |
 
 ---
 
@@ -50,15 +50,16 @@ O coeficiente `b` é a elasticidade. Com ela, calculamos o preço ótimo:
 
 - **Algoritmo:** LightGBM (vencedor) e XGBoost, comparados via 5-fold CV
 - **Target:** `log(price)` — previsão em escala log, convertida com `expm1`
-- **Métricas OOF:**
+- **Métricas OOF** (após winsorização P1–P99 do target):
 
 | Modelo | RMSE (R$) | MAE (R$) |
 |---|---|---|
-| LightGBM | 656 | 63 |
-| XGBoost | 688 | 63 |
+| LightGBM | **104.56** | **20.50** |
+| XGBoost | 109.33 | 20.53 |
 
-- **85 features**: tabular, amenities (MLB), bairro (target encoding), geo (Haversine), reviews, competição local, sazonalidade (Holt-Winters)
+- **89 features**: tabular, amenities (MLB), bairro (target encoding), geo (Haversine), reviews, competição local, sazonalidade (Holt-Winters), **demand features** (occupancy, price premium, revenue optimal price)
 - **Tracking:** MLflow com registro de runs, métricas por fold e artefatos
+- **Intervalo de confiança** data-driven: P10/P90 calculados sobre resíduos OOF (substitui ±15% fixo)
 
 ---
 

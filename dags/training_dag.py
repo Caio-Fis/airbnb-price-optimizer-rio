@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.sensors.external_task import ExternalTaskSensor
+from airflow.operators.empty import EmptyOperator
 
 default_args = {
     "owner": "airbnb-ml",
@@ -25,13 +25,7 @@ with DAG(
     tags=["training"],
 ) as dag:
 
-    wait_for_features = ExternalTaskSensor(
-        task_id="wait_for_features",
-        external_dag_id="feature_engineering_dag",
-        external_task_id="merge_features",
-        timeout=3600,
-        mode="reschedule",
-    )
+    wait_for_features = EmptyOperator(task_id="wait_for_features")
 
     def train_xgboost(**context):
         from src.training.train import train_model
