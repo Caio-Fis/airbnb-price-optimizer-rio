@@ -1,18 +1,16 @@
+import math
 import requests
 import streamlit as st
 import plotly.graph_objects as go
 import numpy as np
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+from geopy.point import Point
 
 API_URL = "https://airbnb-price-api-966533570956.us-central1.run.app"
 
-NEIGHBOURHOODS = [
-    "Barra da Tijuca", "Barra de Guaratiba", "Botafogo", "Camorim", "Catete",
-    "Centro", "Copacabana", "Flamengo", "Glória", "Guaratiba", "Gávea",
-    "Humaitá", "Ipanema", "Itanhangá", "Jacarepaguá", "Jardim Botânico",
-    "Lagoa", "Laranjeiras", "Leblon", "Leme", "Recreio dos Bandeirantes",
-    "Santa Teresa", "Santo Cristo", "São Conrado", "Taquara", "Tijuca",
-    "Urca", "Vargem Grande", "Vargem Pequena", "Vidigal",
-]
+_geolocator = Nominatim(user_agent="airbnb-rj-optimizer", timeout=8)
+_RJ_VIEWBOX = [Point(-23.1, -43.8), Point(-22.7, -42.9)]  # bbox do Rio de Janeiro
 
 NEIGHBOURHOOD_COORDS = {
     "Barra da Tijuca": (-23.0058, -43.3498),
@@ -46,6 +44,18 @@ NEIGHBOURHOOD_COORDS = {
     "Vargem Pequena": (-22.9877, -43.4584),
     "Vidigal": (-22.9947, -43.2376),
 }
+
+
+def _snap_neighbourhood(lat: float, lon: float) -> str:
+    """Retorna o bairro cujo centroide é mais próximo de (lat, lon)."""
+    def _hav(la1, lo1, la2, lo2):
+        R = 6371
+        dlat = math.radians(la2 - la1)
+        dlon = math.radians(lo2 - lo1)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(la1)) * math.cos(math.radians(la2)) * math.sin(dlon / 2) ** 2
+        return R * 2 * math.asin(math.sqrt(a))
+    return min(NEIGHBOURHOOD_COORDS, key=lambda b: _hav(lat, lon, *NEIGHBOURHOOD_COORDS[b]))
+
 
 ROOM_TYPE_LABELS = {
     "Imóvel inteiro": "Entire home/apt",
@@ -85,7 +95,10 @@ with st.form("prediction_form"):
 
     with col1:
         st.subheader("Localização")
-        neighbourhood = st.selectbox("Bairro", NEIGHBOURHOODS, index=NEIGHBOURHOODS.index("Copacabana"))
+        address_input = st.text_input(
+            "Endereço do imóvel",
+            placeholder="Ex: Av. Atlântica, 1500, Copacabana",
+        )
         room_type_label = st.selectbox("Tipo de imóvel", list(ROOM_TYPE_LABELS.keys()))
 
     with col2:
@@ -114,6 +127,29 @@ with st.form("prediction_form"):
 
 # ── Resultado ───────────────────────────────────────────────────────────────
 if submitted:
+    # Geocoding
+    if not address_input.strip():
+        st.error("Preencha o endereço do imóvel.")
+        st.stop()
+
+    try:
+        geo_result = _geolocator.geocode(
+            address_input + ", Rio de Janeiro, Brasil",
+            viewbox=_RJ_VIEWBOX,
+            bounded=True,
+        )
+    except (GeocoderTimedOut, GeocoderServiceError):
+        st.error("Serviço de geocoding indisponível. Tente novamente em alguns segundos.")
+        st.stop()
+
+    if geo_result is None:
+        st.error("Endereço não encontrado no Rio de Janeiro. Tente ser mais específico (ex: inclua o nome da rua e o bairro).")
+        st.stop()
+
+    lat = geo_result.latitude
+    lon = geo_result.longitude
+    neighbourhood = _snap_neighbourhood(lat, lon)
+
     payload = {
         "neighbourhood": neighbourhood,
         "room_type": ROOM_TYPE_LABELS[room_type_label],
@@ -124,7 +160,11 @@ if submitted:
         "host_is_superhost": host_is_superhost,
         "instant_bookable": instant_bookable,
         "amenities": amenities_selected,
+        "latitude": lat,
+        "longitude": lon,
     }
+
+    st.info(f"Bairro detectado: **{neighbourhood}** ({lat:.4f}, {lon:.4f})")
 
     with st.spinner("Consultando modelo..."):
         try:
@@ -244,11 +284,10 @@ if submitted:
     # Mapa interativo
     with col_c:
         st.subheader("Localização no Rio")
-        lat, lon = NEIGHBOURHOOD_COORDS.get(neighbourhood, (-22.9068, -43.1729))
         import pandas as pd
         st.map(
             pd.DataFrame({"lat": [lat], "lon": [lon]}),
-            zoom=13,
+            zoom=15,
             use_container_width=True,
         )
 
