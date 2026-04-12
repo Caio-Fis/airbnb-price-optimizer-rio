@@ -29,8 +29,6 @@ BINARY_COLS = ["instant_bookable", "has_availability"]
 NUMERIC_COLS = [
     "accommodates", "bathrooms", "bedrooms", "beds",
     "minimum_nights", "maximum_nights",
-    "number_of_reviews", "review_scores_rating",
-    "review_scores_cleanliness", "review_scores_location",
     "calculated_host_listings_count", "availability_365",
 ]
 

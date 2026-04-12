@@ -2,13 +2,12 @@
 Lógica de predição: aplica encoders e retorna preço previsto.
 
 Features incluídas na inferência:
-  - Tabular: accommodates, bathrooms, bedrooms, beds, nights, reviews, etc.
+  - Tabular: accommodates, bathrooms, bedrooms, beds, nights, etc.
   - Amenities: MultiLabelBinarizer (TOP_AMENITIES)
   - Bairro: TargetEncoder → neighbourhood_enc
   - Geo: distâncias Haversine a POIs + metrô (se lat/lon fornecidos)
   - Sazonalidade: hw_seasonal, month, day_of_week, is_weekend (via target_date)
   - Competição local: comp_count, comp_price_p25/p50/p75, comp_price_rank
-  - Reviews: velocity, days_since, total, neg_signal (defaults para listing novo)
 """
 import json
 import os
@@ -172,10 +171,6 @@ class Predictor:
             "beds": req.beds,
             "minimum_nights": req.minimum_nights,
             "maximum_nights": req.maximum_nights,
-            "number_of_reviews": req.number_of_reviews,
-            "review_scores_rating": req.review_scores_rating or 4.5,
-            "review_scores_cleanliness": req.review_scores_cleanliness or 4.5,
-            "review_scores_location": req.review_scores_location or 4.5,
             "calculated_host_listings_count": req.calculated_host_listings_count,
             "availability_365": req.availability_365,
             "host_is_superhost": int(req.host_is_superhost),
@@ -210,16 +205,6 @@ class Predictor:
         # Competição local (rank via override do two-pass ou 0.5 no primeiro pass)
         row.update(self._competition_features(req.neighbourhood, req.room_type,
                                               comp_price_rank_override))
-
-        # Reviews — mediana do treino como default (não cresce infinitamente)
-        days_default = self.training_stats.get("days_since_last_review_median", 30.0)
-        row.update({
-            "review_velocity": 0.0,
-            "days_since_last_review": days_default,
-            "total_reviews": float(req.number_of_reviews),
-            "n_neg_keywords": 0.0,
-            "neg_keyword_ratio": 0.0,
-        })
 
         # Imagens — zeros (listing sem fotos analisadas)
         for score in ["luxury_score", "cleanliness_score", "brightness_score",
@@ -283,14 +268,6 @@ class Predictor:
                 f"R${self.price_p99:.0f} × 1.5 — possível input outlier"
             )
 
-        # Confiança baseada no número de reviews
-        if req.number_of_reviews >= 20:
-            confidence = "high"
-        elif req.number_of_reviews >= 5:
-            confidence = "medium"
-        else:
-            confidence = "low"
-
         local_median = comp.get("p50")
 
         # Preço ótimo de receita via curva de demanda
@@ -313,7 +290,6 @@ class Predictor:
             predicted_price=round(market_price, 2),
             price_range_low=round(low, 2),
             price_range_high=round(high, 2),
-            confidence=confidence,
             local_median_price=round(local_median, 2) if local_median else None,
             seasonal_note=seasonal_note,
             revenue_optimal_price=revenue_price,

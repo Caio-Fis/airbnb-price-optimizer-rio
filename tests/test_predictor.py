@@ -130,11 +130,6 @@ class TestCompetitionFeatures:
 
 
 class TestBuildFeatures:
-    def test_uses_training_stats_for_days(self, mock_predictor):
-        req = make_request()
-        df = mock_predictor._build_features(req)
-        assert df["days_since_last_review"].iloc[0] == 45.0
-
     def test_shape_is_one_row(self, mock_predictor):
         req = make_request()
         df = mock_predictor._build_features(req)

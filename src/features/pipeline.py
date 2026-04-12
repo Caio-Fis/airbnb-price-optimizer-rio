@@ -67,25 +67,6 @@ def merge_all_features(
         tabular[geo_cols] = tabular[geo_cols].fillna(tabular[geo_cols].median())
         logger.info(f"Geo features merged: {geo_feats.shape}")
 
-    # Merge com features de reviews (opcional — só se o arquivo existir)
-    if reviews_path is None:
-        reviews_path = str(PROCESSED_DATA_PATH / "reviews_features.parquet")
-    reviews_file = Path(reviews_path)
-    if reviews_file.exists() and "id" in tabular.columns:
-        reviews_feats = pd.read_parquet(reviews_file)
-        tabular = tabular.merge(
-            reviews_feats,
-            left_on="id",
-            right_index=True,
-            how="left",
-        )
-        review_cols = ["review_velocity", "days_since_last_review",
-                       "total_reviews", "n_neg_keywords", "neg_keyword_ratio"]
-        for col in review_cols:
-            if col in tabular.columns:
-                tabular[col] = tabular[col].fillna(tabular[col].median())
-        logger.info(f"Reviews features merged: {reviews_feats.shape}")
-
     # Merge com features de competição local (opcional — só se o arquivo existir)
     if competition_path is None:
         competition_path = str(PROCESSED_DATA_PATH / "competition_features.parquet")

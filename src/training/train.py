@@ -25,6 +25,14 @@ EXCLUDE_COLS = [
     "name", "description", "amenities", "amenities_list",
     "host_name", "last_scraped", "neighbourhood_cleansed",
     "picture_url", "host_url", "listing_url",
+    # Reviews removidos — não devem influenciar a previsão de preço
+    "number_of_reviews", "number_of_reviews_ltm", "number_of_reviews_l30d",
+    "number_of_reviews_ly", "reviews_per_month",
+    "review_scores_rating", "review_scores_accuracy", "review_scores_cleanliness",
+    "review_scores_checkin", "review_scores_communication",
+    "review_scores_location", "review_scores_value",
+    "review_velocity", "days_since_last_review", "total_reviews",
+    "n_neg_keywords", "neg_keyword_ratio",
 ]
 
 XGBOOST_PARAMS = {
@@ -59,13 +67,6 @@ LIGHTGBM_PARAMS = {
 def _load_features() -> tuple[pd.DataFrame, pd.Series]:
     df = pd.read_parquet(PROCESSED_DATA_PATH / "final_features.parquet")
     y = df["log_price"]
-
-    # Salvar mediana de days_since_last_review para uso na inferência
-    if "days_since_last_review" in df.columns:
-        median_days = float(df["days_since_last_review"].median())
-        stats_path = PROCESSED_DATA_PATH / "training_stats.joblib"
-        joblib.dump({"days_since_last_review_median": median_days}, stats_path)
-        logger.info(f"training_stats.joblib saved (days_since_last_review_median={median_days:.1f})")
 
     drop_cols = [c for c in EXCLUDE_COLS if c in df.columns]
     X = df.drop(columns=drop_cols).select_dtypes(include=[np.number])

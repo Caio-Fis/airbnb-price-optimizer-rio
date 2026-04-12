@@ -21,7 +21,6 @@ def mock_predictor():
         predicted_price=350.0,
         price_range_low=297.5,
         price_range_high=402.5,
-        confidence="high",
     )
     return predictor
 
@@ -45,8 +44,6 @@ def test_predict_valid_request(client, mock_predictor):
         "bathrooms": 1.0,
         "bedrooms": 2,
         "beds": 2,
-        "number_of_reviews": 50,
-        "review_scores_rating": 4.8,
         "amenities": ["wifi", "kitchen"],
     }
     response = client.post("/predict", json=payload)
@@ -55,7 +52,6 @@ def test_predict_valid_request(client, mock_predictor):
     assert "predicted_price" in data
     assert "price_range_low" in data
     assert "price_range_high" in data
-    assert "confidence" in data
     assert data["price_range_low"] <= data["predicted_price"] <= data["price_range_high"]
 
 
