@@ -23,7 +23,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from src.serving.predict import Predictor
-from src.serving.schemas import HealthResponse, PredictionRequest, PredictionResponse
+from src.serving.schemas import (
+    HealthResponse, PredictionRequest, PredictionResponse,
+    ListingPredictRequest, ListingPredictionResponse,
+)
 from src.serving.security import (
     limiter,
     require_api_key,
@@ -168,6 +171,37 @@ async def predict(request: Request, response: Response, body: PredictionRequest)
         return predictor.predict(body)
     except Exception as e:
         logger.error(f"Prediction failed for neighbourhood={body.neighbourhood}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Prediction failed. Please try again later.",
+        )
+
+
+@app.post(
+    "/predict/listing",
+    response_model=ListingPredictionResponse,
+    tags=["prediction"],
+    summary="Previsão por listing_id",
+    dependencies=[Depends(require_api_key)],
+)
+@limiter.limit(settings.rate_limit_predict)
+async def predict_by_listing(request: Request, response: Response, body: ListingPredictRequest):
+    """
+    Lookup do listing real pelo ID e retorna previsão com metadados.
+    Retorna 404 se o listing_id não estiver no dataset (Set/2025).
+    """
+    if not predictor or not predictor.is_ready():
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Model not available")
+    try:
+        return predictor.predict_by_listing_id(body.listing_id, body.target_date)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"listing_id {body.listing_id} não encontrado no dataset (Set/2025).",
+        )
+    except Exception as e:
+        logger.error(f"Prediction failed for listing_id={body.listing_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Prediction failed. Please try again later.",

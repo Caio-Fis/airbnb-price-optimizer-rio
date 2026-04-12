@@ -20,6 +20,8 @@ COPY data/processed/competition_stats.joblib ./data/processed/competition_stats.
 COPY data/processed/demand_params.joblib ./data/processed/demand_params.joblib
 COPY data/processed/hw_seasonal_by_dow.joblib ./data/processed/hw_seasonal_by_dow.joblib
 COPY data/processed/geo_metro_cache.json ./data/processed/geo_metro_cache.json
+COPY data/processed/prediction_intervals.joblib ./data/processed/prediction_intervals.joblib
+COPY data/processed/listings_slim.parquet ./data/processed/listings_slim.parquet
 
 ENV MODEL_PATH=models/model.joblib \
     ENCODERS_PATH=models/encoders.joblib \

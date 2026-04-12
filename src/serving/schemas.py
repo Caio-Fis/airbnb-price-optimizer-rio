@@ -38,6 +38,20 @@ class PredictionResponse(BaseModel):
     pricing_strategy: Optional[str] = Field(default=None, description="Estratégia: revenue_optimal | premium_positioning | fallback")
 
 
+class ListingPredictRequest(BaseModel):
+    listing_id: int = Field(..., example=821198084644106078)
+    target_date: Optional[date] = Field(default=None, example="2025-12-20")
+
+
+class ListingPredictionResponse(PredictionResponse):
+    listing_id: int = Field(..., description="ID do listing no Airbnb")
+    listing_name: str = Field(..., description="Nome do listing")
+    listing_neighbourhood: str = Field(..., description="Bairro do listing")
+    listing_room_type: str = Field(..., description="Tipo de acomodação")
+    listing_accommodates: int = Field(..., description="Capacidade de hóspedes")
+    listing_current_price: Optional[float] = Field(default=None, description="Preço atual no dataset (R$)")
+
+
 class HealthResponse(BaseModel):
     status: str
     model_loaded: bool

@@ -13,14 +13,14 @@ import json
 import os
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import joblib
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from src.serving.schemas import PredictionRequest, PredictionResponse
+from src.serving.schemas import PredictionRequest, PredictionResponse, ListingPredictionResponse
 from src.features.constants import TOP_AMENITIES
 from src.features.demand import _optimal_price
 from src.features.geo import FIXED_POIS, _haversine, _dist_to_nearest
@@ -35,6 +35,7 @@ METRO_CACHE_PATH = PROCESSED_DATA_PATH / "geo_metro_cache.json"
 DEMAND_PARAMS_PATH = PROCESSED_DATA_PATH / "demand_params.joblib"
 TRAINING_STATS_PATH = PROCESSED_DATA_PATH / "training_stats.joblib"
 PREDICTION_INTERVALS_PATH = PROCESSED_DATA_PATH / "prediction_intervals.joblib"
+LISTINGS_SLIM_PATH = PROCESSED_DATA_PATH / "listings_slim.parquet"
 
 ROOM_TYPES = ["Entire home/apt", "Private room", "Shared room", "Hotel room"]
 
@@ -66,6 +67,7 @@ class Predictor:
         self.training_stats: dict = {}
         self.prediction_intervals: dict = {}
         self.price_p99: Optional[float] = None
+        self.listings_lookup = None
         self._load()
 
     def _load(self):
@@ -113,6 +115,10 @@ class Predictor:
                 f"P10={self.prediction_intervals.get('p10_pct', -0.15):.2%} "
                 f"P90={self.prediction_intervals.get('p90_pct', 0.15):.2%}"
             )
+
+        if LISTINGS_SLIM_PATH.exists():
+            self.listings_lookup = pd.read_parquet(LISTINGS_SLIM_PATH).set_index("id")
+            logger.info(f"Listings lookup loaded — {len(self.listings_lookup)} listings")
 
     def is_ready(self) -> bool:
         return self.model is not None and self.encoders is not None
@@ -240,6 +246,59 @@ class Predictor:
 
         opt_price, opt_occ, strategy = _optimal_price(a, b, comp_p50, comp_p75)
         return round(opt_price, 2), round(opt_occ * 100, 1), strategy
+
+    def predict_by_listing_id(self, listing_id: int, target_date: Optional[date] = None) -> ListingPredictionResponse:
+        """Lookup listing real pelo id e retorna previsão com metadados do listing."""
+        if self.listings_lookup is None or listing_id not in self.listings_lookup.index:
+            raise KeyError(listing_id)
+
+        row = self.listings_lookup.loc[listing_id]
+
+        # Amenities: JSON string → list
+        amenities_raw = row.get("amenities", "[]") or "[]"
+        try:
+            amenities = json.loads(amenities_raw) if isinstance(amenities_raw, str) else list(amenities_raw)
+        except (json.JSONDecodeError, TypeError):
+            amenities = []
+
+        req = PredictionRequest(
+            neighbourhood=str(row["neighbourhood_cleansed"]),
+            room_type=str(row["room_type"]),
+            accommodates=int(row["accommodates"]),
+            bathrooms=float(row["bathrooms"] if pd.notna(row["bathrooms"]) else 1.0),
+            bedrooms=int(row["bedrooms"] if pd.notna(row["bedrooms"]) else 0),
+            beds=int(row["beds"] if pd.notna(row["beds"]) else 1),
+            minimum_nights=int(row["minimum_nights"]),
+            maximum_nights=int(row["maximum_nights"]),
+            host_is_superhost=(str(row.get("host_is_superhost", "f")) == "t"),
+            instant_bookable=(str(row.get("instant_bookable", "f")) == "t"),
+            calculated_host_listings_count=int(row["calculated_host_listings_count"]),
+            availability_365=int(row["availability_365"]),
+            amenities=amenities,
+            latitude=float(row["latitude"]) if pd.notna(row.get("latitude")) else None,
+            longitude=float(row["longitude"]) if pd.notna(row.get("longitude")) else None,
+            target_date=target_date,
+        )
+
+        base = self.predict(req)
+
+        # Preço atual do dataset
+        raw_price = str(row.get("price", "") or "")
+        current_price = None
+        try:
+            current_price = float(raw_price.replace("$", "").replace(",", ""))
+        except (ValueError, AttributeError):
+            pass
+
+        return ListingPredictionResponse(
+            **base.model_dump(),
+            listing_id=listing_id,
+            listing_name=str(row.get("name", "")),
+            listing_neighbourhood=str(row["neighbourhood_cleansed"]),
+            listing_room_type=str(row["room_type"]),
+            listing_accommodates=int(row["accommodates"]),
+            listing_current_price=current_price,
+        )
 
     def predict(self, req: PredictionRequest) -> PredictionResponse:
         # Pass 1: comp_price_rank = 0.5 (placeholder)

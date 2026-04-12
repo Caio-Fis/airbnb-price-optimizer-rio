@@ -1,8 +1,10 @@
 import math
+import re
 import requests
 import streamlit as st
 import plotly.graph_objects as go
 import numpy as np
+import pandas as pd
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from geopy.point import Point
@@ -57,6 +59,19 @@ def _snap_neighbourhood(lat: float, lon: float) -> str:
     return min(NEIGHBOURHOOD_COORDS, key=lambda b: _hav(lat, lon, *NEIGHBOURHOOD_COORDS[b]))
 
 
+def _extract_listing_id(text: str) -> int | None:
+    """Extrai listing_id de URL Airbnb ou inteiro direto."""
+    text = text.strip()
+    # URL: https://www.airbnb.com/rooms/12345678[?...]
+    match = re.search(r"/rooms/(\d+)", text)
+    if match:
+        return int(match.group(1))
+    # Numérico direto
+    if re.fullmatch(r"\d+", text):
+        return int(text)
+    return None
+
+
 ROOM_TYPE_LABELS = {
     "Imóvel inteiro": "Entire home/apt",
     "Quarto privativo": "Private room",
@@ -87,94 +102,11 @@ st.set_page_config(
 )
 
 st.title("🏖️ Otimizador de Preço — Airbnb Rio de Janeiro")
-st.caption("Preencha as características do seu imóvel e descubra o preço que maximiza sua receita.")
+st.caption("Descubra o preço que maximiza sua receita no Airbnb Rio de Janeiro.")
 
-# ── Formulário ──────────────────────────────────────────────────────────────
-with st.form("prediction_form"):
-    col1, col2, col3 = st.columns(3)
 
-    with col1:
-        st.subheader("Localização")
-        address_input = st.text_input(
-            "Endereço do imóvel",
-            placeholder="Ex: Av. Atlântica, 1500, Copacabana",
-        )
-        room_type_label = st.selectbox("Tipo de imóvel", list(ROOM_TYPE_LABELS.keys()))
-
-    with col2:
-        st.subheader("Capacidade")
-        accommodates = st.slider("Hóspedes", 1, 16, 4)
-        bedrooms = st.slider("Quartos", 0, 10, 2)
-        n_bathrooms = st.slider("Banheiros completos", 1, 8, 1)
-        has_lavabo = st.checkbox("Tem lavabo (banheiro social parcial)")
-        bathrooms = float(n_bathrooms) + (0.5 if has_lavabo else 0.0)
-        beds = st.slider("Camas", 1, 16, 2)
-
-    with col3:
-        st.subheader("Perfil do anfitrião")
-        host_is_superhost = st.checkbox("Superanfitrião")
-        instant_bookable = st.checkbox("Reserva instantânea")
-
-    st.subheader("Comodidades")
-    amenities_selected = st.multiselect(
-        "Selecione as comodidades disponíveis",
-        list(AMENITIES_LABELS.keys()),
-        default=["wifi", "kitchen", "air_conditioning"],
-        format_func=lambda x: AMENITIES_LABELS[x],
-    )
-
-    submitted = st.form_submit_button("Calcular preço ótimo", use_container_width=True, type="primary")
-
-# ── Resultado ───────────────────────────────────────────────────────────────
-if submitted:
-    # Geocoding
-    if not address_input.strip():
-        st.error("Preencha o endereço do imóvel.")
-        st.stop()
-
-    try:
-        geo_result = _geolocator.geocode(
-            address_input + ", Rio de Janeiro, Brasil",
-            viewbox=_RJ_VIEWBOX,
-            bounded=True,
-        )
-    except (GeocoderTimedOut, GeocoderServiceError):
-        st.error("Serviço de geocoding indisponível. Tente novamente em alguns segundos.")
-        st.stop()
-
-    if geo_result is None:
-        st.error("Endereço não encontrado no Rio de Janeiro. Tente ser mais específico (ex: inclua o nome da rua e o bairro).")
-        st.stop()
-
-    lat = geo_result.latitude
-    lon = geo_result.longitude
-    neighbourhood = _snap_neighbourhood(lat, lon)
-
-    payload = {
-        "neighbourhood": neighbourhood,
-        "room_type": ROOM_TYPE_LABELS[room_type_label],
-        "accommodates": accommodates,
-        "bathrooms": bathrooms,
-        "bedrooms": bedrooms,
-        "beds": beds,
-        "host_is_superhost": host_is_superhost,
-        "instant_bookable": instant_bookable,
-        "amenities": amenities_selected,
-        "latitude": lat,
-        "longitude": lon,
-    }
-
-    st.info(f"Bairro detectado: **{neighbourhood}** ({lat:.4f}, {lon:.4f})")
-
-    with st.spinner("Consultando modelo..."):
-        try:
-            response = requests.post(f"{API_URL}/predict", json=payload, timeout=15)
-            response.raise_for_status()
-            result = response.json()
-        except requests.exceptions.RequestException as e:
-            st.error(f"Erro ao consultar a API: {e}")
-            st.stop()
-
+def _render_results(result: dict, lat: float | None, lon: float | None):
+    """Renderiza KPIs, gráficos e mapa a partir de um resultado da API."""
     predicted = result["predicted_price"]
     optimal = result.get("revenue_optimal_price") or predicted
     occupancy = result.get("expected_occupancy_pct") or 0.0
@@ -192,14 +124,22 @@ if submitted:
 
     # KPIs — linha 1
     k1, k2, k3 = st.columns(3)
-    k1.metric("Preço de mercado", f"R$ {predicted:,.0f}", help="Benchmark: o que imóveis similares cobram no mesmo bairro e tipo de imóvel")
+    k1.metric(
+        "Preço de mercado",
+        f"R$ {predicted:,.0f}",
+        help="Benchmark: o que imóveis similares cobram no mesmo bairro e tipo de imóvel",
+    )
     k2.metric(
         "Preço ótimo",
         f"R$ {optimal:,.0f}",
         delta=f"R$ {optimal - predicted:+,.0f} vs mercado",
         help="Preço que maximiza a receita esperada (preço × taxa de ocupação), estimado via curva de demanda",
     )
-    k3.metric("Ocupação esperada", f"{occupancy:.0f}%" if occupancy else "—", help="Taxa de ocupação estimada no preço ótimo, baseada na elasticidade do segmento")
+    k3.metric(
+        "Ocupação esperada",
+        f"{occupancy:.0f}%" if occupancy else "—",
+        help="Taxa de ocupação estimada no preço ótimo, baseada na elasticidade do segmento",
+    )
 
     # KPIs — linha 2
     s1, s2, _, _ = st.columns(4)
@@ -284,10 +224,173 @@ if submitted:
     # Mapa interativo
     with col_c:
         st.subheader("Localização no Rio")
-        import pandas as pd
-        st.map(
-            pd.DataFrame({"lat": [lat], "lon": [lon]}),
-            zoom=15,
-            use_container_width=True,
+        if lat is not None and lon is not None:
+            st.map(
+                pd.DataFrame({"lat": [lat], "lon": [lon]}),
+                zoom=15,
+                use_container_width=True,
+            )
+        else:
+            st.info("Coordenadas não disponíveis para este listing.")
+
+
+# ── Tabs ────────────────────────────────────────────────────────────────────
+tab1, tab2 = st.tabs(["Listing existente", "Novo listing"])
+
+
+# ── Tab 1: Listing existente ────────────────────────────────────────────────
+with tab1:
+    st.markdown(
+        "Cole a URL do seu anúncio no Airbnb ou informe o ID do listing para obter a previsão de preço ótimo."
+    )
+
+    with st.form("listing_form"):
+        listing_input = st.text_input(
+            "URL ou ID do listing",
+            placeholder="https://www.airbnb.com/rooms/12345678  ou  12345678",
+        )
+        target_date_1 = st.date_input(
+            "Data alvo (opcional — ajusta sazonalidade)",
+            value=None,
+            help="Deixe em branco para usar a data de hoje.",
+        )
+        submitted_listing = st.form_submit_button(
+            "Analisar listing", use_container_width=True, type="primary"
         )
 
+    if submitted_listing:
+        listing_id = _extract_listing_id(listing_input)
+        if listing_id is None:
+            st.error("Informe uma URL válida do Airbnb (ex: https://www.airbnb.com/rooms/12345678) ou um ID numérico.")
+            st.stop()
+
+        payload = {"listing_id": listing_id}
+        if target_date_1:
+            payload["target_date"] = str(target_date_1)
+
+        with st.spinner("Consultando modelo..."):
+            try:
+                resp = requests.post(f"{API_URL}/predict/listing", json=payload, timeout=15)
+                if resp.status_code == 404:
+                    st.error(
+                        f"Listing **{listing_id}** não encontrado no dataset (Set/2025). "
+                        "Verifique o ID ou use a aba **Novo listing** para inserir as características manualmente."
+                    )
+                    st.stop()
+                resp.raise_for_status()
+                result = resp.json()
+            except requests.exceptions.RequestException as e:
+                st.error(f"Erro ao consultar a API: {e}")
+                st.stop()
+
+        # Metadados do listing
+        current_price = result.get("listing_current_price")
+        st.success(f"Listing encontrado: **{result.get('listing_name', '—')}**")
+
+        meta1, meta2, meta3, meta4 = st.columns(4)
+        meta1.metric("Bairro", result.get("listing_neighbourhood", "—"))
+        meta2.metric("Tipo", result.get("listing_room_type", "—"))
+        meta3.metric("Hóspedes", result.get("listing_accommodates", "—"))
+        meta4.metric(
+            "Preço atual (dataset)",
+            f"R$ {current_price:,.0f}" if current_price else "—",
+            help="Preço cadastrado no snapshot de Set/2025 do Inside Airbnb",
+        )
+
+        # Lat/lon podem não estar no response — usamos None para o mapa
+        _render_results(result, lat=None, lon=None)
+
+
+# ── Tab 2: Novo listing ─────────────────────────────────────────────────────
+with tab2:
+    st.markdown("Preencha as características do imóvel para obter uma estimativa de preço.")
+
+    with st.form("prediction_form"):
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.subheader("Localização")
+            address_input = st.text_input(
+                "Endereço do imóvel",
+                placeholder="Ex: Av. Atlântica, 1500, Copacabana",
+            )
+            room_type_label = st.selectbox("Tipo de imóvel", list(ROOM_TYPE_LABELS.keys()))
+
+        with col2:
+            st.subheader("Capacidade")
+            accommodates = st.slider("Hóspedes", 1, 16, 4)
+            bedrooms = st.slider("Quartos", 0, 10, 2)
+            n_bathrooms = st.slider("Banheiros completos", 1, 8, 1)
+            has_lavabo = st.checkbox("Tem lavabo (banheiro social parcial)")
+            bathrooms = float(n_bathrooms) + (0.5 if has_lavabo else 0.0)
+            beds = st.slider("Camas", 1, 16, 2)
+
+        with col3:
+            st.subheader("Perfil do anfitrião")
+            host_is_superhost = st.checkbox("Superanfitrião")
+            instant_bookable = st.checkbox("Reserva instantânea")
+
+        st.subheader("Comodidades")
+        amenities_selected = st.multiselect(
+            "Selecione as comodidades disponíveis",
+            list(AMENITIES_LABELS.keys()),
+            default=["wifi", "kitchen", "air_conditioning"],
+            format_func=lambda x: AMENITIES_LABELS[x],
+        )
+
+        submitted = st.form_submit_button(
+            "Calcular preço ótimo", use_container_width=True, type="primary"
+        )
+
+    if submitted:
+        if not address_input.strip():
+            st.error("Preencha o endereço do imóvel.")
+            st.stop()
+
+        try:
+            geo_result = _geolocator.geocode(
+                address_input + ", Rio de Janeiro, Brasil",
+                viewbox=_RJ_VIEWBOX,
+                bounded=True,
+            )
+        except (GeocoderTimedOut, GeocoderServiceError):
+            st.error("Serviço de geocoding indisponível. Tente novamente em alguns segundos.")
+            st.stop()
+
+        if geo_result is None:
+            st.error(
+                "Endereço não encontrado no Rio de Janeiro. "
+                "Tente ser mais específico (ex: inclua o nome da rua e o bairro)."
+            )
+            st.stop()
+
+        lat = geo_result.latitude
+        lon = geo_result.longitude
+        neighbourhood = _snap_neighbourhood(lat, lon)
+
+        payload = {
+            "neighbourhood": neighbourhood,
+            "room_type": ROOM_TYPE_LABELS[room_type_label],
+            "accommodates": accommodates,
+            "bathrooms": bathrooms,
+            "bedrooms": bedrooms,
+            "beds": beds,
+            "host_is_superhost": host_is_superhost,
+            "instant_bookable": instant_bookable,
+            "amenities": amenities_selected,
+            "latitude": lat,
+            "longitude": lon,
+        }
+
+        st.info(f"Bairro detectado: **{neighbourhood}** ({lat:.4f}, {lon:.4f})")
+
+        with st.spinner("Consultando modelo..."):
+            try:
+                response = requests.post(f"{API_URL}/predict", json=payload, timeout=15)
+                response.raise_for_status()
+                result = response.json()
+            except requests.exceptions.RequestException as e:
+                st.error(f"Erro ao consultar a API: {e}")
+                st.stop()
+
+        _render_results(result, lat=lat, lon=lon)
