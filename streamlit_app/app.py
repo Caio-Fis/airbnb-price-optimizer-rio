@@ -92,7 +92,9 @@ with st.form("prediction_form"):
         st.subheader("Capacidade")
         accommodates = st.slider("Hóspedes", 1, 16, 4)
         bedrooms = st.slider("Quartos", 0, 10, 2)
-        bathrooms = float(st.slider("Banheiros", 1, 8, 1))
+        n_bathrooms = st.slider("Banheiros completos", 1, 8, 1)
+        has_lavabo = st.checkbox("Tem lavabo (banheiro social parcial)")
+        bathrooms = float(n_bathrooms) + (0.5 if has_lavabo else 0.0)
         beds = st.slider("Camas", 1, 16, 2)
 
     with col3:
