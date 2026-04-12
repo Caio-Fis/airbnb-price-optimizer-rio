@@ -4,6 +4,8 @@ Pipeline de ML de ponta a ponta para **otimização de preço** de listings do A
 
 **API pública:** `https://airbnb-price-api-966533570956.us-central1.run.app`
 
+**Dashboard:** <a href="https://lookerstudio.google.com/reporting/0e85626b-599a-46f6-a746-50db0329cc8b" target="_blank">Looker Studio — Análise de Preços Airbnb RJ</a>
+
 **Monitoramento:** <a href="https://storage.googleapis.com/airbnb-rj-projectb0f/evidently/monitoring_drift_report.html" target="_blank">Relatório de Data Drift Evidently — Jun vs Set 2025</a>
 
 ---
