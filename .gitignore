@@ -57,3 +57,8 @@ Thumbs.db
 
 # Docker volumes
 postgres-db-volume/
+
+# Frontend
+frontend/node_modules/
+.hf-space/
+mlflow.db

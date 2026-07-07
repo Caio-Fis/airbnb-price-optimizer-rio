@@ -78,6 +78,22 @@ def test_predict_invalid_accommodates(client, mock_predictor):
 
 
 def test_root_endpoint(client):
+    """Com o build do frontend presente, '/' serve o index.html; sem ele, JSON informativo."""
     response = client.get("/")
     assert response.status_code == 200
-    assert "docs" in response.json()
+    content_type = response.headers.get("content-type", "")
+    if "text/html" in content_type:
+        assert '<div id="root">' in response.text
+    else:
+        assert "docs" in response.json()
+
+
+def test_listings_map_endpoint(client):
+    response = client.get("/listings/map")
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "public, max-age=3600"
+    data = response.json()
+    assert data["type"] == "FeatureCollection"
+    assert len(data["features"]) > 40000
+    # ids devem ser strings — inteiros > 2^53 corrompem em JavaScript
+    assert isinstance(data["features"][0]["properties"]["id"], str)

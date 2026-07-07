@@ -14,10 +14,12 @@ Segurança implementada:
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -99,7 +101,8 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Cache-Control"] = "no-store"
+    if "cache-control" not in response.headers:
+        response.headers["Cache-Control"] = "no-store"
     # Em produção com HTTPS, adicionar HSTS no proxy reverso (nginx/traefik)
     return response
 
@@ -208,10 +211,35 @@ async def predict_by_listing(request: Request, response: Response, body: Listing
         )
 
 
-@app.get("/", include_in_schema=False)
-async def root():
-    return {
-        "service": "Airbnb Price Optimizer API",
-        "version": "1.0.0",
-        "docs": settings.docs_url or "disabled in production",
-    }
+MAP_LISTINGS_PATH = Path(settings.processed_data_path) / "listings_map.json.gz"
+FRONTEND_DIST = Path("frontend/dist")
+
+
+@app.get("/listings/map", tags=["listings"], summary="GeoJSON de todos os listings para o mapa")
+async def listings_map(request: Request):
+    """FeatureCollection pré-comprimida (gzip) com id/nome/bairro/tipo/preço de cada listing."""
+    if not MAP_LISTINGS_PATH.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Map data not available")
+    return Response(
+        content=MAP_LISTINGS_PATH.read_bytes(),
+        media_type="application/json",
+        headers={
+            "Content-Encoding": "gzip",
+            "Cache-Control": "public, max-age=3600",
+        },
+    )
+
+
+# Frontend estático (React/Vite) — mesmo container, mesma origem (sem CORS).
+# Sem o build (dev da API isolada), "/" volta ao JSON informativo.
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+else:
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return {
+            "service": "Airbnb Price Optimizer API",
+            "version": "1.0.0",
+            "docs": settings.docs_url or "disabled in production",
+        }

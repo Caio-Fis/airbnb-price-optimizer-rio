@@ -1,0 +1,231 @@
+/* Tokens — paleta dark validada (dataviz skill) */
+:root {
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232322;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --border: rgba(255, 255, 255, 0.1);
+  --accent: #3987e5;      /* série 1 — mercado */
+  --optimal: #199e70;     /* série 2 — preço ótimo */
+  --warn: #c98500;
+  --good: #0ca30c;
+  --radius: 12px;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font);
+  background: var(--page);
+  color: var(--ink);
+}
+
+.app { position: relative; height: 100%; overflow: hidden; }
+.map-container { position: absolute; inset: 0; }
+
+/* ── Header flutuante ─────────────────────────────────────── */
+.header {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+.header .subtitle { font-size: 12px; color: var(--muted); }
+
+.mode-toggle { display: flex; gap: 4px; background: var(--surface-2); border-radius: 8px; padding: 3px; }
+.mode-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.mode-toggle button.active { background: var(--accent); color: #fff; font-weight: 600; }
+
+/* ── Painel lateral ───────────────────────────────────────── */
+.panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--grid) transparent;
+}
+.panel h2 { margin: 0 0 4px; font-size: 17px; line-height: 1.3; }
+.panel .close {
+  position: absolute; top: 12px; right: 12px;
+  border: 0; background: var(--surface-2); color: var(--ink-2);
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;
+}
+.panel .close:hover { color: var(--ink); }
+
+.meta-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+.chip {
+  font-size: 12px; color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 3px 10px; border-radius: 999px;
+}
+.chip strong { color: var(--ink); font-weight: 600; }
+
+/* ── Formulários ──────────────────────────────────────────── */
+label.field { display: block; margin-bottom: 12px; font-size: 13px; color: var(--ink-2); }
+label.field > span { display: block; margin-bottom: 5px; }
+input[type="text"], input[type="date"], input[type="number"], select {
+  width: 100%;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 14px;
+  color-scheme: dark;
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper button {
+  width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--ink); font-size: 16px; cursor: pointer;
+}
+.stepper button:hover { border-color: var(--accent); }
+.stepper output { min-width: 32px; text-align: center; font-size: 15px; font-weight: 600; }
+
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); margin: 8px 0; cursor: pointer; }
+.check-row input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.amenities-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin: 6px 0 14px; }
+
+.btn-primary {
+  width: 100%;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.btn-primary:hover { filter: brightness(1.1); }
+.btn-primary:disabled { opacity: 0.55; cursor: wait; }
+
+.error-box {
+  background: color-mix(in srgb, #d03b3b 18%, var(--surface));
+  border: 1px solid #d03b3b;
+  color: var(--ink);
+  font-size: 13px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 12px;
+}
+.info-note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+/* ── Resultados ───────────────────────────────────────────── */
+.results { margin-top: 18px; border-top: 1px solid var(--grid); padding-top: 16px; }
+.kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kpi {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.kpi.hero { grid-column: span 2; border-color: var(--optimal); }
+.kpi .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 4px; }
+.kpi .value { font-size: 20px; font-weight: 700; }
+.kpi.hero .value { font-size: 30px; }
+.kpi .delta { font-size: 12px; margin-top: 3px; color: var(--ink-2); }
+.kpi .delta.up { color: var(--good); }
+.kpi .sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+.chart-block { margin-top: 18px; }
+.chart-block h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0 0 8px; }
+
+/* Comparativo de preços — barras horizontais em HTML puro */
+.price-bars { display: grid; gap: 8px; }
+.price-bar { display: grid; grid-template-columns: 92px 1fr 64px; align-items: center; gap: 8px; font-size: 12px; }
+.price-bar .name { color: var(--ink-2); }
+.price-bar .track { background: var(--grid); border-radius: 4px; height: 14px; overflow: hidden; }
+.price-bar .fill { height: 100%; border-radius: 4px 3px 3px 4px; }
+.price-bar .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+/* ── Legenda do mapa ──────────────────────────────────────── */
+.legend {
+  position: absolute;
+  bottom: 28px;
+  left: 16px;
+  z-index: 15;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.legend .title { font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.legend .ramp { width: 140px; height: 8px; border-radius: 4px; margin-bottom: 3px; }
+.legend .ticks { display: flex; justify-content: space-between; color: var(--muted); }
+
+/* Tooltip do hover no mapa */
+.maplibregl-popup.hover-tip .maplibregl-popup-content {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: var(--font);
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.maplibregl-popup.hover-tip .maplibregl-popup-tip { border-top-color: var(--surface); }
+
+.loading-overlay {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-2); font-size: 14px;
+  background: var(--page);
+}
+
+/* Tooltip Recharts */
+.recharts-default-tooltip {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px;
+}
+
+@media (max-width: 640px) {
+  .panel { top: auto; max-height: 62vh; }
+  .header .subtitle { display: none; }
+}

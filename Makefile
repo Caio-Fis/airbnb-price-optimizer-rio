@@ -1,4 +1,4 @@
-.PHONY: help setup up down restart logs test lint format parquet demo install-playwright
+.PHONY: help setup up down restart logs test lint format parquet frontend serve install-playwright
 
 help:
 	@echo "Available commands:"
@@ -13,7 +13,8 @@ help:
 	@echo "  make parquet    - Convert raw CSV.gz to Parquet (run once)"
 	@echo "  make train      - Trigger training DAG manually"
 	@echo "  make predict    - Test API prediction endpoint"
-	@echo "  make demo       - Run Streamlit demo app"
+	@echo "  make frontend   - Build React frontend (frontend/dist)"
+	@echo "  make serve      - Run API + frontend locally (uvicorn :8000)"
 	@echo "  make install-playwright - Install Playwright Chromium (scraper)"
 
 setup:
@@ -50,8 +51,11 @@ parquet:
 train:
 	docker compose exec airflow-scheduler airflow dags trigger training_dag
 
-demo:
-	streamlit run demo/app.py
+frontend:
+	cd frontend && npm install && npm run build
+
+serve:
+	uvicorn src.serving.main:app --port 8000
 
 install-playwright:
 	playwright install chromium
