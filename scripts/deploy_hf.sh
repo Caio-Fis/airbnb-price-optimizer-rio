@@ -25,6 +25,7 @@ for f in feature_names competition_stats demand_params hw_seasonal_by_dow \
 done
 cp "$ROOT"/data/processed/geo_metro_cache.json "$ROOT"/data/processed/geo_poi_*.json \
    "$ROOT"/data/processed/listings_slim.parquet "$ROOT"/data/processed/listings_map.json.gz \
+   "$ROOT"/data/processed/clip_features.parquet \
    "$BUILD/data/processed/"
 
 # README com o front-matter exigido pelo Spaces

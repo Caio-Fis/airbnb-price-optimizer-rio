@@ -40,6 +40,7 @@ COPY data/processed/feature_names.joblib \
      data/processed/geo_poi_supermarket.json \
      data/processed/geo_poi_attraction.json \
      data/processed/geo_poi_nightclub.json \
+     data/processed/clip_features.parquet \
      data/processed/listings_slim.parquet \
      data/processed/listings_map.json.gz \
      data/processed/

@@ -72,6 +72,7 @@ class Predictor:
         self.ips_lookup: dict[str, dict] = {}
         self.ips_medians: dict[str, float] = {}
         self.seasonal_factors: dict = {}
+        self.clip_lookup = None
         self.model_version = "unknown"
         self.training_stats: dict = {}
         self.prediction_intervals: dict = {}
@@ -123,6 +124,11 @@ class Predictor:
                 f"POI caches loaded — {len(self.poi_coords)} categorias: "
                 f"{ {c: len(p) for c, p in self.poi_coords.items()} }"
             )
+
+        clip_path = PROCESSED_DATA_PATH / "clip_features.parquet"
+        if clip_path.exists():
+            self.clip_lookup = pd.read_parquet(clip_path).set_index("listing_id")
+            logger.info(f"CLIP features loaded — {len(self.clip_lookup)} listings com foto")
 
         if SEASONAL_FACTORS_PATH.exists():
             self.seasonal_factors = joblib.load(SEASONAL_FACTORS_PATH)
@@ -262,7 +268,8 @@ class Predictor:
         }
 
     def _build_features(self, req: PredictionRequest,
-                        comp_price_rank_override: Optional[float] = None) -> np.ndarray:
+                        comp_price_rank_override: Optional[float] = None,
+                        listing_id: Optional[int] = None) -> np.ndarray:
         row = {
             "accommodates": req.accommodates,
             "bathrooms": req.bathrooms,
@@ -312,15 +319,9 @@ class Predictor:
         if self.ips_lookup:
             row.update(self._bairro_features(req.neighbourhood))
 
-        # Imagens — zeros (listing sem fotos analisadas)
-        for score in ["luxury_score", "cleanliness_score", "brightness_score",
-                      "professional_photo_score", "modern_style_score"]:
-            row[f"clip_{score}"] = 0.0
-        for i in range(20):
-            row[f"clip_emb_{i}"] = 0.0
-        row["object_count"] = 0
-        row["yolo_luxury_score"] = 0.0
-        row["bed_count"] = req.beds
+        # Imagens (CLIP) — scores reais da foto do listing quando disponíveis;
+        # zeros para imóvel novo/sem foto (mesmo tratamento do fillna no treino)
+        row.update(self._clip_features(listing_id))
 
         df = pd.DataFrame([row])
 
@@ -332,6 +333,19 @@ class Predictor:
             df = df[self.feature_names]
 
         return df
+
+    CLIP_SCORE_COLS = ["luxury_score", "cleanliness_score", "brightness_score",
+                       "professional_photo_score", "modern_style_score"]
+
+    def _clip_features(self, listing_id: Optional[int]) -> dict:
+        """Scores CLIP da foto real do listing; zeros sem foto (= fillna do treino)."""
+        if (listing_id is not None and self.clip_lookup is not None
+                and listing_id in self.clip_lookup.index):
+            return self.clip_lookup.loc[listing_id].to_dict()
+        cols = self.clip_lookup.columns if self.clip_lookup is not None else (
+            self.CLIP_SCORE_COLS + [f"clip_emb_{i}" for i in range(20)]
+        )
+        return {c: 0.0 for c in cols}
 
     def _revenue_optimal(self, neighbourhood: str, room_type: str) -> tuple[Optional[float], Optional[float], str]:
         """Retorna (revenue_optimal_price, expected_occupancy, strategy) do segmento."""
@@ -380,7 +394,7 @@ class Predictor:
             target_date=target_date,
         )
 
-        base = self.predict(req)
+        base = self.predict(req, listing_id=listing_id)
 
         # Preço atual do dataset
         raw_price = str(row.get("price", "") or "")
@@ -402,9 +416,10 @@ class Predictor:
             longitude=req.longitude,
         )
 
-    def predict(self, req: PredictionRequest) -> PredictionResponse:
+    def predict(self, req: PredictionRequest,
+                listing_id: Optional[int] = None) -> PredictionResponse:
         # Pass 1: comp_price_rank = 0.5 (placeholder)
-        X1 = self._build_features(req)
+        X1 = self._build_features(req, listing_id=listing_id)
         log_pred1 = float(self.model.predict(X1)[0])
         market_price_1 = float(np.expm1(log_pred1))
 
@@ -416,7 +431,8 @@ class Predictor:
 
         if p25 > 0 and p50 > 0 and p75 > p25:
             actual_rank = _rank_from_percentiles(market_price_1, p25, p50, p75)
-            X2 = self._build_features(req, comp_price_rank_override=actual_rank)
+            X2 = self._build_features(req, comp_price_rank_override=actual_rank,
+                                      listing_id=listing_id)
             log_pred2 = float(self.model.predict(X2)[0])
             market_price = float(np.expm1(log_pred2))
         else:

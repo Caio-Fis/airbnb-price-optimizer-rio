@@ -242,3 +242,33 @@ class TestSeasonalMultiplier:
         p.seasonal_factors["events"]["reveillon"] = 100.0
         mult, _ = p._seasonal_multiplier(date(2026, 12, 31))
         assert mult == 2.5
+
+
+class TestClipServing:
+    def _predictor(self):
+        from unittest.mock import patch
+        with patch("src.serving.predict.Predictor._load"):
+            from src.serving.predict import Predictor
+            return Predictor()
+
+    def test_real_scores_for_known_listing(self):
+        p = self._predictor()
+        cols = p.CLIP_SCORE_COLS + [f"clip_emb_{i}" for i in range(20)]
+        p.clip_lookup = pd.DataFrame(
+            [dict(zip(cols, np.linspace(0.1, 0.9, len(cols))))], index=[123]
+        )
+        feats = p._clip_features(123)
+        assert feats["luxury_score"] == pytest.approx(0.1)
+        assert len(feats) == 25
+
+    def test_zeros_without_photo_or_lookup(self):
+        p = self._predictor()
+        p.clip_lookup = None
+        feats = p._clip_features(None)
+        assert all(v == 0.0 for v in feats.values())
+        assert len(feats) == 25
+
+        cols = p.CLIP_SCORE_COLS + [f"clip_emb_{i}" for i in range(20)]
+        p.clip_lookup = pd.DataFrame([dict(zip(cols, [0.5] * 25))], index=[123])
+        feats = p._clip_features(999)  # id sem foto
+        assert all(v == 0.0 for v in feats.values())

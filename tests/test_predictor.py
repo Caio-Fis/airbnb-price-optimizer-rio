@@ -172,9 +172,9 @@ class TestTwoPassPrediction:
 
         original_build = mock_predictor._build_features
 
-        def capture_build(r, comp_price_rank_override=None):
+        def capture_build(r, comp_price_rank_override=None, listing_id=None):
             call_ranks.append(comp_price_rank_override)
-            return original_build(r, comp_price_rank_override)
+            return original_build(r, comp_price_rank_override, listing_id)
 
         mock_predictor._build_features = capture_build
         mock_predictor.predict(req)

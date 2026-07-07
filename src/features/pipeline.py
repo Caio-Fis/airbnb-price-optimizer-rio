@@ -50,7 +50,11 @@ def merge_all_features(
         logger.info(f"YOLO features merged: {yolo_feats.shape}")
 
     # Preencher NaN das features de imagem (listings sem foto)
-    image_cols = [c for c in tabular.columns if c.startswith(("clip_", "yolo_", "has_", "luxury", "brightness"))]
+    image_cols = [c for c in tabular.columns if c.startswith((
+        "clip_", "yolo_", "has_",
+        "luxury_score", "cleanliness_score", "brightness_score",
+        "professional_photo_score", "modern_style_score",
+    ))]
     tabular[image_cols] = tabular[image_cols].fillna(0)
 
     # Merge com features geo (opcional — só se o arquivo existir)
