@@ -14,6 +14,14 @@ stages:
     outs:
       - data/processed/geo_features.parquet
       - data/processed/geo_metro_cache.json
+      - data/processed/geo_poi_bar.json
+      - data/processed/geo_poi_restaurant.json
+      - data/processed/geo_poi_cafe_bakery.json
+      - data/processed/geo_poi_gym.json
+      - data/processed/geo_poi_park.json
+      - data/processed/geo_poi_supermarket.json
+      - data/processed/geo_poi_attraction.json
+      - data/processed/geo_poi_nightclub.json
 
   reviews_features:
     cmd: python -c "from src.features.reviews import ReviewFeaturePipeline; ReviewFeaturePipeline().run()"
@@ -56,6 +64,16 @@ stages:
     outs:
       - data/processed/yolo_features.parquet
 
+  bairro_features:
+    cmd: python -c "from src.features.bairro import BairroFeaturePipeline; BairroFeaturePipeline().run()"
+    deps:
+      - src/features/bairro.py
+      - data/external/ips_bairros_2022.csv
+      - data/external/bairro_name_map.json
+      - data/processed/listings_set2025.parquet
+    outs:
+      - data/processed/bairro_features.parquet
+
   competition_features:
     cmd: python -c "from src.features.competition import CompetitionFeaturePipeline; CompetitionFeaturePipeline().run()"
     deps:
@@ -80,6 +98,8 @@ stages:
       - data/processed/tabular_features.parquet
       - data/processed/seasonality_features.parquet
       - data/processed/competition_features.parquet
+      - data/processed/geo_features.parquet
+      - data/processed/bairro_features.parquet
     outs:
       - data/processed/final_features.parquet
 

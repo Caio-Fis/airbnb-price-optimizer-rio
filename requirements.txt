@@ -1,7 +1,4 @@
-# Demo
-streamlit>=1.35.0
-streamlit-folium>=0.20.0
-folium>=0.16.0
+# Utils HTTP
 requests>=2.31.0
 
 # Scraper
@@ -32,6 +29,7 @@ open-clip-torch==2.24.0
 
 # Feature engineering
 shap==0.45.0
+osmnx>=2.1.0  # POIs de vizinhança via OSM (só pipeline offline, não vai na imagem da API)
 
 # Serving
 fastapi==0.111.0
@@ -51,6 +49,7 @@ google-cloud-storage==2.16.0
 evidently==0.4.30
 
 # Utils
+holidays>=0.60  # feriados BR-RJ (ajuste sazonal)
 python-dotenv==1.0.1
 loguru==0.7.2
 joblib==1.4.2

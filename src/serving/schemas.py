@@ -33,6 +33,7 @@ class PredictionResponse(BaseModel):
     price_range_high: float = Field(..., description="Limite superior do intervalo de mercado (R$)")
     local_median_price: Optional[float] = Field(default=None, description="Mediana de preço do bairro+tipo (R$)")
     seasonal_note: Optional[str] = Field(default=None, description="Observação sobre sazonalidade da data alvo")
+    seasonal_multiplier: Optional[float] = Field(default=None, description="Fator multiplicativo aplicado pela data (dow × evento, amortecido)")
     revenue_optimal_price: Optional[float] = Field(default=None, description="Preço que maximiza receita esperada (R$)")
     expected_occupancy_pct: Optional[float] = Field(default=None, description="Ocupação esperada no preço ótimo (%)")
     pricing_strategy: Optional[str] = Field(default=None, description="Estratégia: revenue_optimal | premium_positioning | fallback")
@@ -50,6 +51,8 @@ class ListingPredictionResponse(PredictionResponse):
     listing_room_type: str = Field(..., description="Tipo de acomodação")
     listing_accommodates: int = Field(..., description="Capacidade de hóspedes")
     listing_current_price: Optional[float] = Field(default=None, description="Preço atual no dataset (R$)")
+    latitude: Optional[float] = Field(default=None, description="Latitude do listing")
+    longitude: Optional[float] = Field(default=None, description="Longitude do listing")
 
 
 class HealthResponse(BaseModel):

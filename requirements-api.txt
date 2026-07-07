@@ -1,27 +1,30 @@
 # Dependências mínimas para o serving da API
 # torch/transformers/ultralytics/shap são usados só no pipeline offline (treino/features)
+# Versões alinhadas ao ambiente que gerou os artefatos (model/encoders .joblib)
 
 # Core
-pandas==2.2.2
-numpy==1.26.4
-scikit-learn==1.4.2
-category-encoders==2.6.3
+pandas==2.3.3
+numpy==2.3.5
+scikit-learn==1.8.0
+category-encoders==2.8.1
 
 # Models
-xgboost==2.0.3
-lightgbm==4.3.0
+xgboost==3.2.0
+lightgbm==4.6.0
 
 # Math
-scipy==1.11.4
+scipy==1.16.2
+statsmodels==0.14.6
 
 # Serving
-fastapi==0.111.0
-uvicorn[standard]==0.29.0
-pydantic==2.7.1
-pydantic-settings==2.3.4
+fastapi==0.135.3
+uvicorn[standard]==0.44.0
+pydantic==2.12.5
+pydantic-settings==2.13.1
 slowapi==0.1.9
 
 # Utils
-loguru==0.7.2
-joblib==1.4.2
-pyarrow==16.1.0
+loguru==0.7.3
+joblib==1.5.3
+pyarrow==20.0.0
+holidays==0.100  # feriados BR-RJ para o ajuste sazonal por data

@@ -63,7 +63,7 @@ def merge_all_features(
             right_index=True,
             how="left",
         )
-        geo_cols = [c for c in tabular.columns if c.startswith("dist_km_")]
+        geo_cols = [c for c in tabular.columns if c.startswith(("dist_km_", "poi_"))]
         tabular[geo_cols] = tabular[geo_cols].fillna(tabular[geo_cols].median())
         logger.info(f"Geo features merged: {geo_feats.shape}")
 
@@ -82,6 +82,21 @@ def merge_all_features(
         comp_cols = [c for c in tabular.columns if c.startswith("comp_")]
         tabular[comp_cols] = tabular[comp_cols].fillna(tabular[comp_cols].median())
         logger.info(f"Competition features merged: {competition_feats.shape}")
+
+    # Merge com features de qualidade do bairro (IPS — opcional)
+    bairro_file = PROCESSED_DATA_PATH / "bairro_features.parquet"
+    if bairro_file.exists() and "id" in tabular.columns:
+        bairro_feats = pd.read_parquet(bairro_file)
+        tabular = tabular.merge(
+            bairro_feats,
+            left_on="id",
+            right_index=True,
+            how="left",
+        )
+        bairro_cols = [c for c in tabular.columns if c.startswith("bairro_") and c != "bairro_ips_missing"]
+        tabular[bairro_cols] = tabular[bairro_cols].fillna(tabular[bairro_cols].median())
+        tabular["bairro_ips_missing"] = tabular["bairro_ips_missing"].fillna(1)
+        logger.info(f"Bairro features merged: {bairro_feats.shape}")
 
     # Merge com features de demanda (opcional — só se o arquivo existir)
     demand_file = Path(demand_path) if demand_path else PROCESSED_DATA_PATH / "demand_features.parquet"

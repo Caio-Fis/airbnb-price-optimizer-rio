@@ -33,6 +33,26 @@ EXCLUDE_COLS = [
     "review_scores_location", "review_scores_value",
     "review_velocity", "days_since_last_review", "total_reviews",
     "n_neg_keywords", "neg_keyword_ratio",
+    # IDs sem significado preditivo
+    "scrape_id", "host_id",
+    # Derivadas de preço/ocupação do painel — vazamento de alvo e
+    # indisponíveis na inferência (o serving zerava, criando skew)
+    "occupancy_rate", "price_premium", "revenue_optimal_price",
+    "expected_occupancy_at_optimal",
+    "estimated_occupancy_l365d", "estimated_revenue_l365d",
+    # Colunas do scrape que o serving não recebe do usuário
+    "host_listings_count", "host_total_listings_count",
+    "minimum_minimum_nights", "maximum_minimum_nights",
+    "minimum_maximum_nights", "maximum_maximum_nights",
+    "minimum_nights_avg_ntm", "maximum_nights_avg_ntm",
+    "availability_30", "availability_60", "availability_90", "availability_eoy",
+    "calculated_host_listings_count_entire_homes",
+    "calculated_host_listings_count_private_rooms",
+    "calculated_host_listings_count_shared_rooms",
+    # Sazonalidade do snapshot: variância ~0 no treino (data única de scrape);
+    # o ajuste por data é a camada sazonal pós-modelo no serving
+    "hw_level", "hw_trend", "hw_seasonal", "hw_fitted", "hw_residual",
+    "month", "day_of_week", "is_weekend",
 ]
 
 XGBOOST_PARAMS = {

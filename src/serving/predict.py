@@ -23,7 +23,11 @@ from loguru import logger
 from src.serving.schemas import PredictionRequest, PredictionResponse, ListingPredictionResponse
 from src.features.constants import TOP_AMENITIES
 from src.features.demand import _optimal_price
-from src.features.geo import FIXED_POIS, _haversine, _dist_to_nearest
+from src.features.geo import (
+    FIXED_POIS, ORLA_POINTS, POI_CATEGORIES,
+    _haversine, _dist_to_nearest, poi_cache_path, poi_stats,
+)
+from src.features.bairro import IPS_CSV, IPS_FEATURES, load_ips_lookup, normalize_bairro
 
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "models/model.joblib"))
 ENCODERS_PATH = Path(os.getenv("ENCODERS_PATH", "models/encoders.joblib"))
@@ -35,6 +39,7 @@ METRO_CACHE_PATH = PROCESSED_DATA_PATH / "geo_metro_cache.json"
 DEMAND_PARAMS_PATH = PROCESSED_DATA_PATH / "demand_params.joblib"
 TRAINING_STATS_PATH = PROCESSED_DATA_PATH / "training_stats.joblib"
 PREDICTION_INTERVALS_PATH = PROCESSED_DATA_PATH / "prediction_intervals.joblib"
+SEASONAL_FACTORS_PATH = PROCESSED_DATA_PATH / "seasonal_factors.joblib"
 LISTINGS_SLIM_PATH = PROCESSED_DATA_PATH / "listings_slim.parquet"
 
 ROOM_TYPES = ["Entire home/apt", "Private room", "Shared room", "Hotel room"]
@@ -63,6 +68,10 @@ class Predictor:
         self.demand_params: dict = {}
         self.seasonal_by_dow: dict = {}
         self.metro_stations: list = []
+        self.poi_coords: dict[str, list] = {}
+        self.ips_lookup: dict[str, dict] = {}
+        self.ips_medians: dict[str, float] = {}
+        self.seasonal_factors: dict = {}
         self.model_version = "unknown"
         self.training_stats: dict = {}
         self.prediction_intervals: dict = {}
@@ -104,6 +113,29 @@ class Predictor:
                 self.metro_stations = [tuple(p) for p in json.load(f)]
             logger.info(f"Metro cache loaded — {len(self.metro_stations)} stations")
 
+        for category in POI_CATEGORIES:
+            cache = poi_cache_path(category)
+            if cache.exists():
+                with open(cache) as f:
+                    self.poi_coords[category] = [tuple(p) for p in json.load(f)]
+        if self.poi_coords:
+            logger.info(
+                f"POI caches loaded — {len(self.poi_coords)} categorias: "
+                f"{ {c: len(p) for c, p in self.poi_coords.items()} }"
+            )
+
+        if SEASONAL_FACTORS_PATH.exists():
+            self.seasonal_factors = joblib.load(SEASONAL_FACTORS_PATH)
+            logger.info(f"Seasonal factors loaded: {self.seasonal_factors.get('events')}")
+
+        if IPS_CSV.exists():
+            self.ips_lookup = load_ips_lookup()
+            self.ips_medians = {
+                feat: float(np.median([v[feat] for v in self.ips_lookup.values()]))
+                for feat in IPS_FEATURES
+            }
+            logger.info(f"IPS lookup loaded — {len(self.ips_lookup)} bairros")
+
         if TRAINING_STATS_PATH.exists():
             self.training_stats = joblib.load(TRAINING_STATS_PATH)
             logger.info(f"Training stats loaded: {self.training_stats}")
@@ -118,6 +150,8 @@ class Predictor:
 
         if LISTINGS_SLIM_PATH.exists():
             self.listings_lookup = pd.read_parquet(LISTINGS_SLIM_PATH).set_index("id")
+            self.default_lat = float(pd.to_numeric(self.listings_lookup["latitude"], errors="coerce").median())
+            self.default_lon = float(pd.to_numeric(self.listings_lookup["longitude"], errors="coerce").median())
             logger.info(f"Listings lookup loaded — {len(self.listings_lookup)} listings")
 
     def is_ready(self) -> bool:
@@ -137,10 +171,19 @@ class Predictor:
                 )
             else:
                 row["dist_km_metro"] = 0.0
+            row["dist_km_orla"] = float(_dist_to_nearest(lats, lons, ORLA_POINTS)[0])
+            for category, pois in self.poi_coords.items():
+                dist, count = poi_stats(lats, lons, pois)
+                row[f"dist_km_{category}"] = float(dist[0])
+                row[f"poi_{category}_500m"] = float(count[0])
         else:
             for name in FIXED_POIS:
                 row[f"dist_km_{name}"] = 0.0
             row["dist_km_metro"] = 0.0
+            row["dist_km_orla"] = 0.0
+            for category in self.poi_coords:
+                row[f"dist_km_{category}"] = 0.0
+                row[f"poi_{category}_500m"] = 0.0
         return row
 
     def _seasonality_features(self, target_date: Optional[date]) -> dict:
@@ -154,6 +197,56 @@ class Predictor:
             "month": d.month,
             "is_weekend": int(dow >= 5),
         }
+
+    def _bairro_features(self, neighbourhood: str) -> dict:
+        """IPS do bairro; bairro desconhecido cai na mediana da cidade + flag."""
+        stats = self.ips_lookup.get(normalize_bairro(neighbourhood))
+        if stats:
+            row = {f"bairro_{feat}": stats[feat] for feat in IPS_FEATURES}
+            row["bairro_ips_missing"] = 0
+        else:
+            row = {f"bairro_{feat}": self.ips_medians.get(feat, 0.0) for feat in IPS_FEATURES}
+            row["bairro_ips_missing"] = 1
+        return row
+
+    def _detect_event(self, d: date) -> Optional[str]:
+        """reveillon | carnaval (±2 dias) | feriado (BR-RJ) | None."""
+        if (d.month == 12 and d.day >= 27) or (d.month == 1 and d.day <= 2):
+            return "reveillon"
+        import holidays as holidays_lib
+        br = holidays_lib.Brazil(subdiv="RJ", years=[d.year], categories=("public", "optional"))
+        carnival_days = [dt for dt, name in br.items() if "Carnival" in name]
+        if any(abs((d - c).days) <= 2 for c in carnival_days):
+            return "carnaval"
+        if d in br:
+            return "feriado"
+        return None
+
+    def _seasonal_multiplier(self, target_date: Optional[date]) -> tuple[float, Optional[str]]:
+        """Multiplicador de preço para a data e nota humana ("sábado de Carnaval — 1.16×")."""
+        if not target_date or not self.seasonal_factors:
+            return 1.0, None
+
+        factors = self.seasonal_factors
+        dow = target_date.weekday()
+        idx = factors["dow"].get(dow, 1.0)
+
+        event = self._detect_event(target_date)
+        event_factor = factors["events"].get(event) if event else None
+        if event_factor:
+            idx *= event_factor
+
+        mult = idx ** factors.get("dampening", 0.5)
+        clip_low, clip_high = factors.get("clip", [0.8, 2.5])
+        mult = round(max(clip_low, min(clip_high, mult)), 3)
+
+        dow_names = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+        event_labels = {"reveillon": "Réveillon", "carnaval": "Carnaval", "feriado": "feriado"}
+        note = dow_names[dow]
+        if event and event_factor:
+            note += f" de {event_labels[event]}"
+        note += f" — ajuste {mult:.2f}×"
+        return mult, note
 
     def _competition_features(self, neighbourhood: str, room_type: str,
                               comp_price_rank_override: Optional[float] = None) -> dict:
@@ -182,6 +275,9 @@ class Predictor:
             "host_is_superhost": int(req.host_is_superhost),
             "instant_bookable": int(req.instant_bookable),
             "has_availability": 1,
+            # lat/lon cruas são features do modelo; sem coordenadas, mediana da cidade
+            "latitude": req.latitude if req.latitude is not None else getattr(self, "default_lat", -22.97),
+            "longitude": req.longitude if req.longitude is not None else getattr(self, "default_lon", -43.19),
         }
 
         # One-hot para room_type (drop_first=True — base: Entire home/apt)
@@ -211,6 +307,10 @@ class Predictor:
         # Competição local (rank via override do two-pass ou 0.5 no primeiro pass)
         row.update(self._competition_features(req.neighbourhood, req.room_type,
                                               comp_price_rank_override))
+
+        # Qualidade do bairro (IPS 2022)
+        if self.ips_lookup:
+            row.update(self._bairro_features(req.neighbourhood))
 
         # Imagens — zeros (listing sem fotos analisadas)
         for score in ["luxury_score", "cleanliness_score", "brightness_score",
@@ -298,6 +398,8 @@ class Predictor:
             listing_room_type=str(row["room_type"]),
             listing_accommodates=int(row["accommodates"]),
             listing_current_price=current_price,
+            latitude=req.latitude,
+            longitude=req.longitude,
         )
 
     def predict(self, req: PredictionRequest) -> PredictionResponse:
@@ -338,12 +440,13 @@ class Predictor:
         low = max(market_price * (1 + p10_pct), 1.0)
         high = market_price * (1 + p90_pct)
 
-        # Nota de sazonalidade
-        seasonal_note = None
-        if req.target_date:
-            dow_names = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
-            dow = req.target_date.weekday()
-            seasonal_note = f"{dow_names[dow]}, mês {req.target_date.month}"
+        # Ajuste sazonal por dia (camada pós-modelo: dow × evento, amortecido)
+        seasonal_mult, seasonal_note = self._seasonal_multiplier(req.target_date)
+        market_price *= seasonal_mult
+        low *= seasonal_mult
+        high *= seasonal_mult
+        if revenue_price is not None:
+            revenue_price = round(revenue_price * seasonal_mult, 2)
 
         return PredictionResponse(
             predicted_price=round(market_price, 2),
@@ -351,6 +454,7 @@ class Predictor:
             price_range_high=round(high, 2),
             local_median_price=round(local_median, 2) if local_median else None,
             seasonal_note=seasonal_note,
+            seasonal_multiplier=seasonal_mult,
             revenue_optimal_price=revenue_price,
             expected_occupancy_pct=exp_occ,
             pricing_strategy=strategy,

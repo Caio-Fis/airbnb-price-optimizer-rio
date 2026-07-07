@@ -198,3 +198,94 @@ class SeasonalityPipeline:
         logger.info("Seasonal lookup by day_of_week saved.")
 
         return features
+
+
+class SeasonalFactorsPipeline:
+    """
+    Fatores multiplicativos de preço por data, derivados da ocupação real
+    (1 − disponibilidade) dos calendários Jun+Set/2025 — cobertura até Set/2026,
+    incluindo Réveillon 2025/26 e Carnaval/2026.
+
+    Premissas documentadas:
+      - ocupação é proxy de demanda; índice normalizado para média 1.0
+      - multiplicador = (dow × event) ** DAMPENING (elasticidade parcial
+        preço↔ocupação), limitado a [CLIP_LOW, CLIP_HIGH]
+      - fator MENSAL não é estimado: datas longe do scrape têm disponibilidade
+        alta só porque as reservas ainda não aconteceram (artefato de horizonte),
+        e com 15 meses de calendário o efeito de mês não é separável do horizonte
+      - fatores de EVENTO são medidos contra a linha de base local (±21 dias,
+        excluindo o próprio evento), o que cancela o artefato de horizonte
+    """
+
+    DAMPENING = 0.5
+    CLIP_LOW, CLIP_HIGH = 0.8, 2.5
+
+    def run(self) -> str:
+        def _load_avail(snapshot: str) -> pd.Series:
+            df = pd.read_parquet(
+                PROCESSED_DATA_PATH / f"calendar_{snapshot}.parquet",
+                columns=["date", "available"],
+            )
+            df["is_avail"] = (df["available"] == "t").astype("int8")
+            return df.groupby("date")["is_avail"].mean().sort_index()
+
+        agg_jun = _load_avail("jun2025")
+        agg_set = _load_avail("set2025")
+        daily_avail = agg_jun.combine_first(agg_set)
+        daily_avail.update(agg_set)
+        daily_avail.index = pd.to_datetime(daily_avail.index)
+        daily_avail = daily_avail.asfreq("D").interpolate()
+
+        occ = 1.0 - daily_avail  # proxy de ocupação diária (0-1)
+        occ_idx = occ / occ.mean()  # normalizado: média 1.0
+
+        # Dia da semana: distribuído uniformemente ao longo do horizonte → sem viés
+        dow_factor = occ_idx.groupby(occ_idx.index.dayofweek).mean().round(4).to_dict()
+
+        import holidays as holidays_lib
+        years = sorted(occ_idx.index.year.unique())
+        br_rj = holidays_lib.Brazil(subdiv="RJ", years=years, categories=("public", "optional"))
+
+        idx = occ_idx.index
+        reveillon_mask = ((idx.month == 12) & (idx.day >= 27)) | ((idx.month == 1) & (idx.day <= 2))
+
+        carnival_days = {d for d, name in br_rj.items() if "Carnival" in name}
+        carnival_windows = set()
+        for d in carnival_days:
+            for offset in range(-2, 3):
+                carnival_windows.add(pd.Timestamp(d) + pd.Timedelta(days=offset))
+        carnaval_mask = idx.isin(list(carnival_windows))
+
+        holiday_dates = {pd.Timestamp(d) for d in br_rj if pd.Timestamp(d) not in carnival_windows}
+        feriado_mask = idx.isin(list(holiday_dates)) & ~reveillon_mask
+
+        def _event_index(mask) -> float | None:
+            """Ocupação no evento vs linha de base local (±21 dias, sem o evento).
+
+            A razão local cancela o artefato de horizonte de reserva.
+            """
+            if not mask.any():
+                return None
+            ratios = []
+            for day in idx[mask]:
+                lo, hi = day - pd.Timedelta(days=21), day + pd.Timedelta(days=21)
+                window = occ_idx[(idx >= lo) & (idx <= hi) & ~mask]
+                if len(window) >= 14:
+                    ratios.append(occ_idx[day] / window.mean())
+            return round(float(np.mean(ratios)), 4) if ratios else None
+
+        factors = {
+            "dow": dow_factor,
+            "events": {
+                "reveillon": _event_index(reveillon_mask),
+                "carnaval": _event_index(carnaval_mask),
+                "feriado": _event_index(feriado_mask),
+            },
+            "dampening": self.DAMPENING,
+            "clip": [self.CLIP_LOW, self.CLIP_HIGH],
+        }
+
+        output_path = PROCESSED_DATA_PATH / "seasonal_factors.joblib"
+        joblib.dump(factors, output_path)
+        logger.info(f"Seasonal factors salvos em {output_path}: {factors}")
+        return str(output_path)
