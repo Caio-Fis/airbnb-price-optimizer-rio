@@ -79,13 +79,15 @@ Os **dois snapshots** (Jun/2025 → Set/2025) permitem estimar elasticidade-pre�
 - **Campeão: XGBoost** (vs LightGBM, 5-fold CV) — target `log(price)`
 - **65 features** honestas (sem leakage, todas disponíveis na inferência)
 
-| Modelo | OOF RMSE (R$) | OOF MAE (R$) |
-|---|---|---|
-| **XGBoost** | **103.73** | **19.33** |
-| LightGBM | 105.79 | 21.60 |
+| Modelo | OOF RMSE (R$) | OOF MAE (R$) | OOF MedAE (R$) |
+|---|---|---|---|
+| **XGBoost** (campeão, 2266 árvores) | **102.95** | **18.57** | **2.32** |
+| LightGBM | 103.36 | 20.27 | — |
 
 - **Tracking:** MLflow (runs, métricas por fold, artefatos)
 - **Intervalo de confiança:** P10/P90 dos resíduos out-of-fold
+- **Backup versionado:** cada campeão vira uma [GitHub Release](https://github.com/Caio-Fis/airbnb-price-optimizer-rio/releases)
+  com o bundle completo de artefatos de inferência (`scripts/release_champion.py`)
 
 ---
 
@@ -130,9 +132,10 @@ Inside Airbnb (Jun + Set 2025)      OSM (Overpass)      data.rio (IPS 2022)
 | Feature engineering | pandas, scikit-learn (BallTree), osmnx, statsmodels, holidays |
 | Orquestração | Apache Airflow (Docker Compose) · dvc repro |
 | Tracking | MLflow |
-| Monitoramento | Evidently AI ([relatório de drift Jun→Set](https://storage.googleapis.com/airbnb-rj-projectb0f/evidently/monitoring_drift_report.html)) |
+| Monitoramento | Evidently AI (`src/monitoring/drift.py` — data drift + degradação de RMSE) |
 | Deploy | Docker multi-stage → Hugging Face Spaces |
-| Dados | DVC + GCS · [dashboard Looker Studio](https://lookerstudio.google.com/reporting/0e85626b-599a-46f6-a746-50db0329cc8b) |
+| Dados | Parquet (snappy) · DVC para o pipeline (`dvc repro`) |
+| Artefatos do modelo | GitHub Releases (`scripts/release_champion.py`) |
 
 ---
 
@@ -181,7 +184,8 @@ curl -X POST https://caio-fis-airbnb-price-optimizer-rio.hf.space/predict \
 ## Como rodar localmente
 
 ```bash
-# 1. API (usa os artefatos em models/ e data/processed/ — `dvc pull` para baixá-los)
+# 1. API (precisa dos artefatos em models/ e data/processed/ — baixe o bundle do campeão:
+#    gh release download model-v3 --pattern "*.tar.gz" && tar xzf champion-model-v3.tar.gz)
 pip install -r requirements-api.txt
 make serve                      # uvicorn na porta 8000
 
