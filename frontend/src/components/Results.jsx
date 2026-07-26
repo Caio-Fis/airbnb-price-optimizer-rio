@@ -60,27 +60,45 @@ function PriceBars({ result }) {
 
 export default function Results({ result }) {
   const predicted = result.predicted_price;
-  const optimal = result.revenue_optimal_price || predicted;
+  // Quando a estratégia é "fallback", a API não conseguiu estimar a curva de
+  // demanda do segmento e devolve revenue_optimal_price/expected_occupancy nulos.
+  // Nesse caso não existe preço ótimo — anunciar o preço de mercado como "ótimo"
+  // (o antigo `|| predicted`) mostrava um delta de R$ 0,00 e uma curva inventada.
+  const hasOptimal = result.revenue_optimal_price != null;
+  const optimal = hasOptimal ? result.revenue_optimal_price : predicted;
   const delta = optimal - predicted;
-  const curve = revenueCurve(result);
+  const curve = hasOptimal ? revenueCurve(result) : null;
 
   return (
     <div className="results">
       <div className="kpi-grid">
-        <div className="kpi hero">
-          <div className="label">Preço ótimo de receita</div>
-          <div className="value" style={{ color: "#199e70" }}>{brl.format(optimal)}</div>
-          <div className={`delta ${delta >= 0 ? "up" : ""}`}>
-            {delta >= 0 ? "+" : "−"}{brl.format(Math.abs(delta))} vs mercado
-            {result.seasonal_note ? ` · ${result.seasonal_note}` : ""}
+        {hasOptimal ? (
+          <div className="kpi hero">
+            <div className="label">Preço ótimo de receita</div>
+            <div className="value" style={{ color: "#199e70" }}>{brl.format(optimal)}</div>
+            <div className={`delta ${delta >= 0 ? "up" : ""}`}>
+              {delta >= 0 ? "+" : "−"}{brl.format(Math.abs(delta))} vs mercado
+              {result.seasonal_note ? ` · ${result.seasonal_note}` : ""}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="kpi hero">
+            <div className="label">Preço de mercado</div>
+            <div className="value">{brl.format(predicted)}</div>
+            <div className="delta">
+              sem dados de demanda suficientes neste segmento para calcular o ótimo
+              {result.seasonal_note ? ` · ${result.seasonal_note}` : ""}
+            </div>
+          </div>
+        )}
 
-        <div className="kpi">
-          <div className="label">Preço de mercado</div>
-          <div className="value">{brl.format(predicted)}</div>
-          <div className="sub">o que imóveis similares cobram</div>
-        </div>
+        {hasOptimal && (
+          <div className="kpi">
+            <div className="label">Preço de mercado</div>
+            <div className="value">{brl.format(predicted)}</div>
+            <div className="sub">o que imóveis similares cobram</div>
+          </div>
+        )}
 
         <div className="kpi">
           <div className="label">Ocupação esperada</div>
@@ -121,6 +139,7 @@ export default function Results({ result }) {
         <PriceBars result={result} />
       </div>
 
+      {curve && (
       <div className="chart-block">
         <h3>Curva de receita estimada</h3>
         <ResponsiveContainer width="100%" height={190}>
@@ -175,6 +194,7 @@ export default function Results({ result }) {
           </AreaChart>
         </ResponsiveContainer>
       </div>
+      )}
     </div>
   );
 }
