@@ -77,6 +77,23 @@ html, body, #root {
   scrollbar-width: thin;
   scrollbar-color: var(--grid) transparent;
 }
+/* Fallback do Suspense enquanto o chunk do painel carrega. Ocupa o mesmo lugar
+   do .panel para o layout não saltar quando o conteúdo real chega. */
+.panel-loading {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .panel h2 { margin: 0 0 4px; font-size: 17px; line-height: 1.3; }
 .panel .close {
   position: absolute; top: 12px; right: 12px;

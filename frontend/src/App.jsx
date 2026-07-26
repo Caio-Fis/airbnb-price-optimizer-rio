@@ -1,7 +1,12 @@
-import { useCallback, useState } from "react";
+import { Suspense, lazy, useCallback, useState } from "react";
 import MapView from "./components/MapView.jsx";
-import ListingPanel from "./components/ListingPanel.jsx";
-import NewListingForm from "./components/NewListingForm.jsx";
+
+// Os dois painéis só aparecem depois de uma interação (clique no mapa ou aba
+// "Novo imóvel") e ambos puxam o Recharts, que sozinho é ~40% do bundle.
+// Carregar sob demanda tira o Recharts do first paint — o mapa é o que importa
+// na abertura. MapView fica estático: é a tela inicial.
+const ListingPanel = lazy(() => import("./components/ListingPanel.jsx"));
+const NewListingForm = lazy(() => import("./components/NewListingForm.jsx"));
 
 export default function App() {
   const [mode, setMode] = useState("map"); // "map" | "novo"
@@ -36,12 +41,14 @@ export default function App() {
         </nav>
       </header>
 
-      {mode === "map" && selected && (
-        <ListingPanel key={selected.id} listing={selected} onClose={() => setSelected(null)} />
-      )}
-      {mode === "novo" && (
-        <NewListingForm onLocate={setCustomPoint} onClose={() => setMode("map")} />
-      )}
+      <Suspense fallback={<div className="panel-loading">Carregando…</div>}>
+        {mode === "map" && selected && (
+          <ListingPanel key={selected.id} listing={selected} onClose={() => setSelected(null)} />
+        )}
+        {mode === "novo" && (
+          <NewListingForm onLocate={setCustomPoint} onClose={() => setMode("map")} />
+        )}
+      </Suspense>
     </div>
   );
 }
