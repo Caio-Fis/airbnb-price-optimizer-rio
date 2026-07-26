@@ -52,8 +52,19 @@ EOF
 
 # Upload via API (funciona inclusive com tokens hf_oauth, que o git recusa)
 python - << PYEOF
-from huggingface_hub import create_repo, upload_folder
-create_repo("${SPACE_ID}", repo_type="space", space_sdk="docker", exist_ok=True)
+from huggingface_hub import HfApi, create_repo, upload_folder
+
+# create_repo é paywalled para Docker Spaces em cpu-basic (402 Payment Required,
+# exige PRO). Isso vale para CRIAR — um Space que já existe segue atualizável.
+# Portanto: só tenta criar se ele realmente não existir, e deixa o 402 falar por
+# si nesse caso, em vez de derrubar todo deploy de um Space existente.
+api = HfApi()
+try:
+    api.space_info("${SPACE_ID}")
+    print("Space já existe — pulando create_repo")
+except Exception:
+    create_repo("${SPACE_ID}", repo_type="space", space_sdk="docker", exist_ok=True)
+
 upload_folder(
     folder_path="${BUILD}",
     repo_id="${SPACE_ID}",
