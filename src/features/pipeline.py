@@ -9,6 +9,14 @@ from loguru import logger
 
 PROCESSED_DATA_PATH = Path(os.getenv("PROCESSED_DATA_PATH", "data/processed"))
 
+# Features de imagem desativadas: a ablação de 25/Jul/2026 mostrou que a foto de
+# capa degrada o modelo em 6-14% em todas as formas testadas (scores absolutos,
+# embeddings, z-score dentro do bairro). Correlação marginal de +0,31 do
+# luxury_score é redundante com as features de localização/tamanho/competição.
+# Artefatos (clip_features.parquet, extractor, fotos) mantidos para referência.
+# Ver tasks/todo.md — Fase 6 para a tabela completa das 10 variantes.
+USE_IMAGE_FEATURES = False
+
 
 def merge_all_features(
     tabular_path: str,
@@ -35,27 +43,30 @@ def merge_all_features(
             how="left",
         )
 
-    # Imagem CLIP (opcional)
-    clip_file = Path(clip_path) if clip_path else PROCESSED_DATA_PATH / "clip_features.parquet"
-    if clip_file.exists() and "id" in tabular.columns:
-        clip_feats = pd.read_parquet(clip_file)
-        tabular = tabular.merge(clip_feats, left_on="id", right_on="listing_id", how="left")
-        logger.info(f"CLIP features merged: {clip_feats.shape}")
+    if USE_IMAGE_FEATURES:
+        # Imagem CLIP (opcional)
+        clip_file = Path(clip_path) if clip_path else PROCESSED_DATA_PATH / "clip_features.parquet"
+        if clip_file.exists() and "id" in tabular.columns:
+            clip_feats = pd.read_parquet(clip_file)
+            tabular = tabular.merge(clip_feats, left_on="id", right_on="listing_id", how="left")
+            logger.info(f"CLIP features merged: {clip_feats.shape}")
 
-    # Imagem YOLO (opcional)
-    yolo_file = Path(yolo_path) if yolo_path else PROCESSED_DATA_PATH / "yolo_features.parquet"
-    if yolo_file.exists() and "id" in tabular.columns:
-        yolo_feats = pd.read_parquet(yolo_file)
-        tabular = tabular.merge(yolo_feats, left_on="id", right_on="listing_id", how="left", suffixes=("", "_yolo"))
-        logger.info(f"YOLO features merged: {yolo_feats.shape}")
+        # Imagem YOLO (opcional)
+        yolo_file = Path(yolo_path) if yolo_path else PROCESSED_DATA_PATH / "yolo_features.parquet"
+        if yolo_file.exists() and "id" in tabular.columns:
+            yolo_feats = pd.read_parquet(yolo_file)
+            tabular = tabular.merge(yolo_feats, left_on="id", right_on="listing_id", how="left", suffixes=("", "_yolo"))
+            logger.info(f"YOLO features merged: {yolo_feats.shape}")
 
-    # Preencher NaN das features de imagem (listings sem foto)
-    image_cols = [c for c in tabular.columns if c.startswith((
-        "clip_", "yolo_", "has_",
-        "luxury_score", "cleanliness_score", "brightness_score",
-        "professional_photo_score", "modern_style_score",
-    ))]
-    tabular[image_cols] = tabular[image_cols].fillna(0)
+        # Preencher NaN das features de imagem (listings sem foto)
+        image_cols = [c for c in tabular.columns if c.startswith((
+            "clip_", "yolo_", "has_",
+            "luxury_score", "cleanliness_score", "brightness_score",
+            "professional_photo_score", "modern_style_score",
+        ))]
+        tabular[image_cols] = tabular[image_cols].fillna(0)
+    else:
+        logger.info("Image features (CLIP/YOLO) desativadas — ver USE_IMAGE_FEATURES")
 
     # Merge com features geo (opcional — só se o arquivo existir)
     geo_file = PROCESSED_DATA_PATH / "geo_features.parquet"

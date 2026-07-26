@@ -89,9 +89,7 @@ stages:
       from src.features.pipeline import merge_all_features;
       merge_all_features(
         'data/processed/tabular_features.parquet',
-        'data/processed/seasonality_features.parquet',
-        'data/processed/clip_features.parquet',
-        'data/processed/yolo_features.parquet'
+        'data/processed/seasonality_features.parquet'
       )"
     deps:
       - src/features/pipeline.py
@@ -100,7 +98,6 @@ stages:
       - data/processed/competition_features.parquet
       - data/processed/geo_features.parquet
       - data/processed/bairro_features.parquet
-      - data/processed/clip_features.parquet
     outs:
       - data/processed/final_features.parquet
 

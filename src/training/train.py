@@ -16,8 +16,9 @@ import xgboost as xgb
 from loguru import logger
 from sklearn.model_selection import KFold
 
+from src.training.mlflow_setup import MLFLOW_EXPERIMENT_NAME, configure_mlflow
+
 PROCESSED_DATA_PATH = Path(os.getenv("PROCESSED_DATA_PATH", "data/processed"))
-MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "airbnb-price-optimizer")
 
 # Colunas a excluir do treinamento
 EXCLUDE_COLS = [
@@ -55,8 +56,12 @@ EXCLUDE_COLS = [
     "month", "day_of_week", "is_weekend",
 ]
 
+# n_estimators=3000: com 1000 o early stopping nunca acionava (best_iteration ~996
+# em todas as variantes testadas) — o modelo não convergia. Validado em 5 seeds:
+# ganho consistente 5/5 em RMSE (-0,62), MAE (-0,75) e MedAE (-0,49), com desvio
+# 4-6x menor que a média. Ver tasks/todo.md — Fase 6.
 XGBOOST_PARAMS = {
-    "n_estimators": 1000,
+    "n_estimators": 3000,
     "max_depth": 6,
     "learning_rate": 0.05,
     "subsample": 0.8,
@@ -70,7 +75,7 @@ XGBOOST_PARAMS = {
 }
 
 LIGHTGBM_PARAMS = {
-    "n_estimators": 1000,
+    "n_estimators": 3000,
     "max_depth": 6,
     "learning_rate": 0.05,
     "subsample": 0.8,
@@ -89,7 +94,16 @@ def _load_features() -> tuple[pd.DataFrame, pd.Series]:
     y = df["log_price"]
 
     drop_cols = [c for c in EXCLUDE_COLS if c in df.columns]
-    X = df.drop(columns=drop_cols).select_dtypes(include=[np.number])
+    candidates = df.drop(columns=drop_cols)
+    X = candidates.select_dtypes(include=[np.number])
+
+    # select_dtypes(number) descarta bool e object silenciosamente — foi assim que
+    # room_type_* e host_is_superhost_t sumiram do modelo sem ninguém notar.
+    # Manter visível: usar uma delas exige converter na origem E garantir paridade
+    # com o serving (ver src/serving/predict.py::_build_features).
+    ignored = [c for c in candidates.columns if c not in X.columns]
+    if ignored:
+        logger.warning(f"{len(ignored)} colunas não-numéricas ignoradas no treino: {ignored}")
     # Drop columns where all values are NaN, then median-impute the rest
     X = X.dropna(axis=1, how="all")
     X = X.fillna(X.median())
@@ -109,6 +123,7 @@ def _mae_original_space(y_true_log: np.ndarray, y_pred_log: np.ndarray) -> float
 
 
 def train_model(model_type: str = "xgboost") -> str:
+    configure_mlflow()
     mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
     X, y = _load_features()
 

@@ -23,9 +23,9 @@ for f in feature_names competition_stats demand_params hw_seasonal_by_dow \
          prediction_intervals seasonal_factors; do
   cp "$ROOT/data/processed/$f.joblib" "$BUILD/data/processed/"
 done
+# clip_features.parquet fora: features de imagem desativadas (USE_IMAGE_FEATURES)
 cp "$ROOT"/data/processed/geo_metro_cache.json "$ROOT"/data/processed/geo_poi_*.json \
    "$ROOT"/data/processed/listings_slim.parquet "$ROOT"/data/processed/listings_map.json.gz \
-   "$ROOT"/data/processed/clip_features.parquet \
    "$BUILD/data/processed/"
 
 # README com o front-matter exigido pelo Spaces
