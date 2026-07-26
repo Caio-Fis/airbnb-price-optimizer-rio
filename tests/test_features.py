@@ -243,6 +243,29 @@ class TestSeasonalMultiplier:
         mult, _ = p._seasonal_multiplier(date(2026, 12, 31))
         assert mult == 2.5
 
+    def test_carnaval_detectado_com_nome_localizado(self):
+        """A lib holidays devolve o nome traduzido conforme o ambiente: 'Carnival'
+        em dev, 'Carnaval' no container. Casar só com a grafia inglesa fazia o
+        Carnaval virar 'feriado' (0,99x) em produção, perdendo o fator 1,34x.
+        Este teste roda os dois idiomas para que o bug não volte sem alarde."""
+        from datetime import date
+        from unittest.mock import patch
+
+        segunda_carnaval = date(2026, 2, 16)
+        for nome in ("Carnival", "Carnaval"):
+            feriados = {
+                date(2026, 2, 16): nome,
+                date(2026, 2, 17): nome,
+            }
+            with patch("holidays.Brazil", return_value=feriados):
+                p = self._predictor()
+                assert p._detect_event(segunda_carnaval) == "carnaval", (
+                    f"Carnaval não detectado com o nome {nome!r}"
+                )
+                mult, note = p._seasonal_multiplier(segunda_carnaval)
+                assert mult > 1.1, f"multiplicador baixo ({mult}) com nome {nome!r}"
+                assert "Carnaval" in note
+
 
 class TestClipServing:
     def _predictor(self):

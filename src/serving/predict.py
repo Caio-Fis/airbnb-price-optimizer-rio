@@ -221,7 +221,11 @@ class Predictor:
             return "reveillon"
         import holidays as holidays_lib
         br = holidays_lib.Brazil(subdiv="RJ", years=[d.year], categories=("public", "optional"))
-        carnival_days = [dt for dt, name in br.items() if "Carnival" in name]
+        # O nome vem localizado pelo ambiente ("Carnival" em dev, "Carnaval" no
+        # container) — casar só com a grafia inglesa fazia o Carnaval cair em
+        # "feriado" (0,99×) em produção, perdendo o fator 1,34×.
+        carnival_days = [dt for dt, name in br.items()
+                         if "carnival" in name.lower() or "carnaval" in name.lower()]
         if any(abs((d - c).days) <= 2 for c in carnival_days):
             return "carnaval"
         if d in br:

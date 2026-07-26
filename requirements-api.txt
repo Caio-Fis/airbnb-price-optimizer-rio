@@ -26,5 +26,9 @@ slowapi==0.1.9
 # Utils
 loguru==0.7.3
 joblib==1.5.3
+# dill: exigido para desserializar encoders.joblib (o pickle do TargetEncoder
+# carrega objetos que referenciam dill). Sem ele o container sobe e morre no
+# startup com ModuleNotFoundError — pego pelo smoke test em 26/Jul/2026.
+dill==0.4.1
 pyarrow==20.0.0
 holidays==0.100  # feriados BR-RJ para o ajuste sazonal por data
