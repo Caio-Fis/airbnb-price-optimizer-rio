@@ -113,6 +113,7 @@ stages:
     deps:
       - src/training/train.py
       - src/training/evaluate.py
+      - src/training/mlflow_setup.py
       - data/processed/final_features.parquet
     outs:
       - models/model.joblib
