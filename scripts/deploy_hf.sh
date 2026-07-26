@@ -43,7 +43,7 @@ pinned: false
 # Otimizador de Preço — Airbnb Rio de Janeiro
 
 Clique em qualquer acomodação no mapa do Rio, escolha a data e descubra o preço
-que maximiza a receita esperada (preço × ocupação), estimado por LightGBM +
+que maximiza a receita esperada (preço × ocupação), estimado por XGBoost +
 curva de demanda por segmento + ajuste sazonal por dia (Carnaval, Réveillon,
 fim de semana).
 
