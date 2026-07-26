@@ -132,7 +132,7 @@ Inside Airbnb (Jun + Set 2025)      OSM (Overpass)      data.rio (IPS 2022)
 | Feature engineering | pandas, scikit-learn (BallTree), osmnx, statsmodels, holidays |
 | Orquestração | Apache Airflow (Docker Compose) · dvc repro |
 | Tracking | MLflow |
-| Monitoramento | Evidently AI (`src/monitoring/drift.py` — drift Jun→Set + sanidade do campeão) |
+| Monitoramento | Evidently AI ([relatório de drift Jun→Set](docs/evidence/drift_report_jun_set_2025.html)) + sanidade do campeão |
 | Deploy | Docker multi-stage → Hugging Face Spaces |
 | Dados | Parquet (snappy) · DVC para o pipeline (`dvc repro`) |
 | Artefatos do modelo | GitHub Releases (`scripts/release_champion.py`) |

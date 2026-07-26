@@ -88,13 +88,20 @@ class DriftDetector:
     do MESMO arquivo — um snapshot só, sem eixo temporal. E como `final_features`
     sai grosso modo ordenado por `id`, que cresce com a data de cadastro, isso
     comparava anúncios ANTIGOS (mediana 13 reviews) contra RECÉM-CADASTRADOS
-    (mediana 1 review). Resultado medido: 69,7% das colunas "driftadas", bem acima
-    do limite de 30% — ou seja, o monitor acusava drift em TODA execução,
-    independentemente do que acontecesse no mercado. Alarme permanente.
+    (mediana 1 review).
 
-    Medido com os snapshots de verdade: 35,9% das colunas (14/39), puxado pelas
-    que mudam mecanicamente em 3 meses (number_of_reviews, availability_*). O
-    preço, tratado como target, NÃO driftou (KS p=0,59; mediana R$311 → R$317).
+    Na prática ela nem chegava a rodar: `select_dtypes(number)` incluía
+    `neighbourhood_group_cleansed`, `calendar_updated` e `license`, que são
+    numéricas e 100% nulas, e o Evidently levanta ValueError em coluna vazia. A
+    task de drift do Airflow falhava em toda execução. Removendo as vazias para
+    poder medir, dava 44,3% (47/106) — acima do limite de 30%, ou seja, alarme
+    positivo em todo run, independentemente do mercado.
+
+    Medido com os snapshots de verdade (Evidently 0.4.30, Wasserstein normed):
+    **3/40 colunas driftadas = 7,5%, drift=False**. As três são mecânicas em 3
+    meses de distância: availability_60 (0,107), availability_90 (0,113) e
+    availability_eoy (0,918 — os dias restantes até o fim do ano encolhem por
+    definição). O `price`, como target, NÃO driftou: score 0,0089.
     """
 
     def run(self) -> dict:

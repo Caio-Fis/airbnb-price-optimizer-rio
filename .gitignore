@@ -68,3 +68,6 @@ mlflow.db.bak-*
 
 # Saídas de experimentos de ablação (resultados vão para tasks/todo.md)
 resultados_*.csv
+
+# Relatórios de drift datados (o versionado é drift_report_jun_set_2025.html)
+docs/evidence/drift_report_20*.html
