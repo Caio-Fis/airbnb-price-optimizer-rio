@@ -65,3 +65,6 @@ mlflow.db
 # Backups criados por scripts/migrate_mlflow_shadow_db.py e _install_artifact()
 mlflow.db.bak-*
 *.joblib.bak-*
+
+# Saídas de experimentos de ablação (resultados vão para tasks/todo.md)
+resultados_*.csv
