@@ -39,9 +39,22 @@ logs/
 airflow.db
 airflow.cfg
 
-# GCP credentials
-*.json
-!requirements.txt
+# Credenciais
+# NUNCA usar `*.json` genérico aqui: além de proteger por acidente, ele excluía
+# frontend/package.json e package-lock.json — o Dockerfile faz COPY dos dois, e
+# sem eles um clone limpo não constrói. Regras específicas, sempre.
+credentials/
+*-service-account.json
+service-account.json
+*credentials*.json
+gcp-key*.json
+
+# Caches de scraping/geocoding (regeneráveis)
+cache/
+
+# Notas de trabalho locais (não vão para o repo)
+tasks/
+.claude/
 
 # IDE
 .vscode/
