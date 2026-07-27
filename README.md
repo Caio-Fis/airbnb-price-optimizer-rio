@@ -81,11 +81,23 @@ Os **dois snapshots** (Jun/2025 → Set/2025) permitem estimar elasticidade-pre�
 
 | Modelo | OOF RMSE (R$) | OOF MAE (R$) | OOF MedAE (R$) |
 |---|---|---|---|
-| **XGBoost** (campeão, 2266 árvores) | **102.95** | **18.57** | **2.32** |
-| LightGBM | 103.36 | 20.27 | — |
+| **XGBoost** (campeão, 2266 árvores) | **108.64 ± 4.12** | **19.94 ± 1.21** | **2.66 ± 0.27** |
+| LightGBM | 103.36 ¹ | 20.27 ¹ | — |
+
+Média ± desvio sobre **5 partições** (seeds 42, 7, 123, 2024, 99). A variação
+entre partições é grande — o RMSE do mesmo modelo vai de 102.95 a 114.46,
+**11%** — então reportar o valor de um seed só superestimaria a performance:
+102.95 é o melhor dos cinco, não o esperado.
+
+¹ LightGBM medido só no seed 42, para escolha do campeão; não re-rodado nos 5.
 
 - **Tracking:** MLflow (runs, métricas por fold, artefatos)
 - **Intervalo de confiança:** P10/P90 dos resíduos out-of-fold
+- **Regra para features novas:** nada entra sem ablação pareada em 5 seeds com a
+  diferença média superando 2× o erro padrão (`scripts/ablacao_naonumericas.py`).
+  Já reprovados por essa régua: features de imagem CLIP, segmentação por
+  `room_type`, dummies de `room_type`/`superhost`, qualidade do anfitrião,
+  `property_type` e `bathrooms_text`.
 - **Backup versionado:** cada campeão vira uma [GitHub Release](https://github.com/Caio-Fis/airbnb-price-optimizer-rio/releases)
   com o bundle completo de artefatos de inferência (`scripts/release_champion.py`)
 
